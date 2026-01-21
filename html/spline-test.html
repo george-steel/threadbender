@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
+#canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+h1, h2 {
+    text-align: center;
+}
+</style>
+
+<script type="module">
+import init from "./pkg/spline_test.js";
+
+async function run() {
+    await init();
+    console.log("hello from js");
+}
+
+if (navigator.gpu) {
+    run();
+} else {
+    document.body.innerHTML = "<h1>WebGPU Not Supported</h1><h2>Please use a browser such as Chrome or Firefox Nightly that supports WebGPU</h2>";
+}
+</script>
+
+</script>
+</head>
+<body>
+<canvas id="canvas" width="800" height="600"></canvas>
+</body>
+</html>

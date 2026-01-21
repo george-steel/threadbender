@@ -1,0 +1,30 @@
+[package]
+name = "spline-test"
+version = "0.0.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+
+[dependencies]
+bytemuck.workspace = true
+glam.workspace = true
+log.workspace=true
+wgpu.workspace = true
+image = "0.25.9"
+nanopre = "0.1.2"
+winit = "0.30.12"
+rc-zip-sync = {version = "4.4.2", default-features = false, features=["deflate"]}
+console_error_panic_hook = "0.1.7"
+console_log = "1.0"
+wasm-bindgen = "0.2.108"
+wasm-bindgen-futures = "0.4.58"
+web-sys = {version = "0.3.85", features = [
+    "Document",
+    "Window",
+    "Element",
+]}
+getrandom = {version = "0.3.4", features = ["wasm_js"]}
+
+

@@ -1,0 +1,12 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/spline-test",
+]
+
+[workspace.dependencies]
+bytemuck = "1.24.0"
+glam = {version="0.30.10", features=["bytemuck"]}
+wgpu = "28.0.0"
+log = "0.4.29"
+
