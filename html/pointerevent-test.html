@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>PointerEvent Tester</title>
+</head>
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
+body {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+}
+#canvas {
+    display: block;
+    flex: 1;
+    touch-action: none;
+}
+#eventLog {
+    background-color: #ddd;
+    display: block;
+    flex: 1;
+    padding: 1em;
+    overflow: scroll;
+}
+#eventLog p {
+    margin: 0.5em 0;
+}
+</style>
+<script type="module">
+let canvas = document.getElementById("canvas");
+let log = document.getElementById("eventLog");
+
+function handler(e) {
+    const clipX = (e.offsetX / canvas.clientWidth) * 2 - 1;
+    const clipY = (e.offsetY / canvas.clientHeight) * -2 + 1;
+    const message = `${e.type}: (${e.offsetX}, ${e.offsetY}) (${clipX}, ${clipY}) ${e.pointerType} ${e.pointerId} button ${e.button} buttons ${e.buttons} `;
+    let p = document.createElement("p");
+    p.innerText = message;
+    log.appendChild(p);
+    p.scrollIntoView();
+    e.preventDefault();
+}
+
+canvas.onpointercancel = handler;
+canvas.onpointerdown = handler;
+canvas.onpointerenter = handler;
+canvas.onpointerleave = handler;
+canvas.onpointermove = handler;
+canvas.onpointerup = handler;
+
+</script>
+<body>
+<canvas id="canvas" width="400" height="600"></canvas>
+<div id="eventLog">foo</div>
+</body>
+</html>
