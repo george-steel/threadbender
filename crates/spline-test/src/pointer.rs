@@ -58,7 +58,7 @@ impl GestureRecognizer {
         self.css_size = new_size;
         match self.state {
             GestureState::Idle => {
-                Vec::new()
+                vec![GestureEvent::Out]
             },
             GestureState::Down(pointer, _) => {
                 self.state = GestureState::WaitForSettle(HashSet::from([pointer]));
