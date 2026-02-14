@@ -28,5 +28,6 @@ web-sys = {version = "0.3.85", features = [
     "HtmlCanvasElement",
 ]}
 getrandom = {version = "0.3.4", features = ["wasm_js"]}
+half = {version = "2.7.1", features=["bytemuck"]}
 
 

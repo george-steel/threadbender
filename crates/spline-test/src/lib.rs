@@ -1,38 +1,38 @@
 use glam::{UVec2, dvec2, uvec2};
 use wasm_bindgen::prelude::*;
 use web_sys::{HtmlCanvasElement, HtmlElement, PointerEvent, window};
-use crate::{gputil::GPUContext, viewport::ViewportScroller};
+use wgpu::Surface;
+use crate::{gputil::GPUContext, grid::{GridParams, GridUniforms, GriddedRenderer, RGBA16f}, viewport::ViewportScroller};
 
 
 pub mod gputil;
 mod shaders;
 mod viewport;
 mod pointer;
+mod grid;
 
 #[wasm_bindgen]
-pub struct Application {
+pub struct PointerTest {
+    log: HtmlElement,
+    gestures: pointer::GestureRecognizer,
+    scroller: ViewportScroller,
     gpu: GPUContext,
-    #[wasm_bindgen(skip)]
-    pub surface: wgpu::Surface<'static>,
-}
-
-impl Application {
-    pub fn new(gpu: GPUContext, surface: wgpu::Surface<'static>, size: UVec2) -> Self {
-        Application {
-            gpu, surface,
-        }
-    }
+    renderer: GriddedRenderer,
+    grid_params: GridParams,
 }
 
 #[wasm_bindgen]
-impl Application {
-    #[cfg(target_arch = "wasm32")]
-    pub async fn init_from_canvas(canvas: HtmlCanvasElement) -> Self {
-        let init_size = UVec2::new(canvas.width(), canvas.height());
-        log::info!("got canvas size");
+impl PointerTest {
+    pub async fn init(canvas: HtmlCanvasElement, log: HtmlElement) -> Self {
+        let css_width = canvas.client_width();
+        let css_height =  canvas.client_height();
+        let gestures = pointer::GestureRecognizer::new(dvec2(css_width as f64, css_height as f64));
+        let init_dev_size = uvec2(css_width as u32, css_height as u32);
+        let init_rad = dvec2(10.0, 10.0);
+        let scroller = ViewportScroller::new(init_dev_size, init_rad);
 
         let wgpu_inst = wgpu::Instance::default();
-        let surface = wgpu_inst.create_surface(wgpu::SurfaceTarget::Canvas(canvas)).unwrap();
+        let surface = wgpu_inst.create_surface(wgpu::SurfaceTarget::Canvas(canvas.clone())).unwrap();
         let gpu = GPUContext::with_limits(
             wgpu_inst,
             Some(&surface),
@@ -40,36 +40,23 @@ impl Application {
             Default::default(),
         ).await;
         log::info!("initialized gpu");
-
-        gpu.configure_surface_target(&surface, init_size);
-        log::info!("configured canvas");
-
-        Self::new(gpu, surface, init_size)
-    }
-
-    pub fn render(&self) {
-
-    }
-}
-
-#[wasm_bindgen]
-pub struct PointerTest {
-    canvas: HtmlCanvasElement,
-    log: HtmlElement,
-    gestures: pointer::GestureRecognizer,
-    scroller: ViewportScroller,
-}
-
-#[wasm_bindgen]
-impl PointerTest {
-    pub fn init(canvas: HtmlCanvasElement, log: HtmlElement) -> Self {
-        let css_width = canvas.client_width();
-        let css_height =  canvas.client_height();
-        let gestures = pointer::GestureRecognizer::new(dvec2(css_width as f64, css_height as f64));
-        let init_dev_size = uvec2(css_width as u32, css_height as u32);
-        let init_rad = dvec2(10.0, 10.0);
-        let scroller = ViewportScroller::new(init_dev_size, init_rad);
-        PointerTest { canvas, log, gestures, scroller}
+        
+        let canvas_size = uvec2(canvas.width(), canvas.height());
+        let renderer = GriddedRenderer::new(&gpu, surface, canvas_size);
+        let grid_params = GridParams {
+            line_spacing: 1.0,
+            major_every: 5,
+            line_color: RGBA16f::rgba(0.0, 0.0, 0.0, 0.1),
+            major_color: RGBA16f::rgba(0.0, 0.0, 0.0, 0.3),
+            axis_color: RGBA16f::rgba(0.0, 0.0, 0.0, 1.0),
+            background_color: RGBA16f::rgba(0.0, 1.0, 1.0, 1.0),
+        };
+        PointerTest {
+            log,
+            gestures, scroller,
+            gpu, renderer,
+            grid_params,
+        }
     }
 
     pub fn add_log(&self, message: &str) {
@@ -80,14 +67,17 @@ impl PointerTest {
         entry.scroll_into_view();
     }
 
-    pub fn on_pointer_event(&mut self, raw_event: PointerEvent) {
+    pub fn on_pointer_event(&mut self, raw_event: PointerEvent) -> bool{
         let cooked_events = self.gestures.process_event(&raw_event);
+        let mut anydirty = false;
         for g in cooked_events {
             let (opt_ev, dirty) = self.scroller.handle_gesture(g);
+            anydirty = anydirty || dirty;
             if let Some(e) = opt_ev {
                 self.add_log(&format!("{:?}, {:?}", e, self.scroller.current_view.center));
             }
         }
+        anydirty
     }
 
     pub fn on_resize(&mut self, css_width: f64, css_height: f64, device_width: u32, device_height: u32) {
@@ -101,6 +91,20 @@ impl PointerTest {
             }
         }
         self.scroller.handle_resize(device_size);
+        self.renderer.resize(&self.gpu, device_size);
+    }
+
+    pub fn on_frame(&mut self) {
+        let grid_uniforms = &GridUniforms {
+            viewport: self.scroller.current_view.to_uniforms(),
+            params: self.grid_params
+        };
+        let res = self.renderer.render(&self.gpu, grid_uniforms, move |_,_| {});
+        if let Err(e) = res {
+            let message = format!("Error with swapchain: {}", e);
+            log::warn!("{}", &message);
+            self.add_log(&message);
+        }
     }
 }
 

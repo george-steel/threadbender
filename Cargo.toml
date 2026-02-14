@@ -5,8 +5,8 @@ members = [
 ]
 
 [workspace.dependencies]
-bytemuck = "1.24.0"
-glam = {version="0.30.10", features=["bytemuck"]}
+bytemuck = {version="1.25.0", features=["must_cast"]}
+glam = {version="0.31.0", features=["bytemuck"]}
 wgpu = "28.0.0"
 log = "0.4.29"
 

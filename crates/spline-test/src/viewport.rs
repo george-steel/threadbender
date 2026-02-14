@@ -1,4 +1,4 @@
-use glam::{DAffine2, DVec2, UVec2};
+use glam::{DAffine2, DVec2, UVec2, Vec2};
 
 use crate::pointer::GestureEvent;
 
@@ -36,6 +36,29 @@ impl ViewportWindow {
             px_per_unit: self.px_per_unit,
             viewport_dims: new_size,
         }
+    }
+
+    pub fn to_uniforms(&self) -> ViewportUniforms {
+        let scales = ((2.0 * self.px_per_unit) / self.viewport_dims.as_dvec2()).as_vec2();
+        let trans = - scales * self.center.as_vec2();
+        let (sw, ne) = self.as_rect();
+        ViewportUniforms { scales, trans, sw: sw.as_vec2(), ne: ne.as_vec2() }
+    }
+}
+
+// GPU structure
+#[derive(Copy, Clone, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C, align(8))]
+pub struct ViewportUniforms {
+    pub scales: Vec2,
+    pub trans: Vec2,
+    pub sw: Vec2,
+    pub ne: Vec2,
+}
+
+impl ViewportUniforms {
+    pub fn transform_point(&self, p: Vec2) -> Vec2 {
+        self.scales * p + self.trans
     }
 }
 
