@@ -14,25 +14,25 @@ body {
     flex-direction: row;
     align-items: stretch;
 }
-#canvas {
+#gridded_display {
     display: block;
     width: 50%;
     height: 100%;
     touch-action: none;
 }
-#eventLog {
+#event_log {
     background-color: #ddd;
     display: block;
     flex: 1;
     padding: 1em;
     overflow: scroll;
 }
-#eventLog p {
+#event_log p {
     margin: 0.5em 0;
 }
 </style>
 <script type="module">
-import init, {PointerTest} from "./pkg/spline_test.js";
+import init, {main} from "./pkg/spline_test.js";
 
 let canvas = document.getElementById("canvas");
 let log = document.getElementById("eventLog");
@@ -41,44 +41,7 @@ async function run() {
     await init();
     console.log("hello from js");
 
-    const app = await PointerTest.init(canvas, log);
-    const pointer_handler = e => app.on_pointer_event(e);
-
-    canvas.onpointercancel = pointer_handler;
-    canvas.onpointerdown = pointer_handler;
-    canvas.onpointerenter = pointer_handler;
-    canvas.onpointerleave = pointer_handler;
-    canvas.onpointermove = pointer_handler;
-    canvas.onpointerup = pointer_handler;
-
-    const observer = new ResizeObserver(entries => {
-        console.log(entries);
-        for (const entry of entries) if (entry.target == canvas) {
-            const pxwidth = entry.devicePixelContentBoxSize?.[0].inlineSize ||
-                    entry.contentBoxSize[0].inlineSize * devicePixelRatio;
-            const pxheight = entry.devicePixelContentBoxSize?.[0].blockSize ||
-                     entry.contentBoxSize[0].blockSize * devicePixelRatio;
-            const cssheight = entry.contentBoxSize[0].blockSize;
-            const csswidth = entry.contentBoxSize[0].inlineSize;
-
-            canvas.width = Math.max(1, Math.min(pxwidth, 4096));
-            canvas.height = Math.max(1, Math.min(pxheight, 4096));
-
-            console.log(`resize canvas (${csswidth} x ${cssheight})    (${pxwidth} x ${pxheight})`);
-            app.on_resize(csswidth, cssheight, pxwidth, pxheight);
-        }
-    });
-    try {
-        observer.observe(canvas, { box: 'device-pixel-content-box' });
-    } catch {
-        observer.observe(canvas, { box: 'content-box' });
-    }
-
-    let frame = () => {
-        app.on_frame();
-        requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame)
+    main();
 }
 
 if (navigator.gpu) {
@@ -89,7 +52,5 @@ if (navigator.gpu) {
 
 </script>
 <body>
-<canvas id="canvas" width="400" height="600"></canvas>
-<div id="eventLog">foo</div>
 </body>
 </html>

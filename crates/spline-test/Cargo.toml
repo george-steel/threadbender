@@ -20,14 +20,17 @@ console_error_panic_hook = "0.1.7"
 console_log = "1.0"
 wasm-bindgen = "0.2.108"
 wasm-bindgen-futures = "0.4.58"
-web-sys = {version = "0.3.85", features = [
+web-sys = {version = "0.3.88", features = [
     "Document",
     "Window",
     "Element",
     "PointerEvent",
     "HtmlCanvasElement",
+    "ResizeObserver"
 ]}
-getrandom = {version = "0.3.4", features = ["wasm_js"]}
+getrandom = {version = "0.4.1", features = ["wasm_js"]}
 half = {version = "2.7.1", features=["bytemuck"]}
+leptos = {version = "0.8.16", features=["csr"]}
+clone_all = "0.1.1"
 
 

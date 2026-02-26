@@ -30,6 +30,9 @@ impl GPUContext {
         .await
         .expect("Failed to find an appropriate adapter");
 
+        log::info!("adapter features:\n{:?}", adapter.features());
+        log::info!("adapter limits:\n{:?}", adapter.limits());
+
         let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
             label: None,
             required_features: features,
