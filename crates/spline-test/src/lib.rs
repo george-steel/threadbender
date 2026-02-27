@@ -34,10 +34,10 @@ fn App() -> impl IntoView {
     let grid_params = RwSignal::new(GridParams {
         line_spacing: 1.0,
         major_every: 5,
-        line_color: RGBA16f::rgba(0.0, 0.0, 0.0, 0.1),
-        major_color: RGBA16f::rgba(0.0, 0.0, 0.0, 0.3),
-        axis_color: RGBA16f::rgba(0.0, 0.0, 0.0, 1.0),
-        background_color: RGBA16f::rgba(0.0, 1.0, 1.0, 1.0),
+        line_color: RGBA16f::rgba(1.0, 1.0, 1.0, 0.1),
+        major_color: RGBA16f::rgba(1.0, 1.0, 1.0, 0.3),
+        axis_color: RGBA16f::rgba(1.0, 1.0, 1.0, 1.0),
+        background_color: RGBA16f::rgba(0.0, 0.0, 0.0, 0.0),
     });
 
     let messages = RwSignal::new(VecDeque::<String>::new());

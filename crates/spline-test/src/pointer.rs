@@ -358,4 +358,16 @@ impl GestureRecognizer {
             Vec::new()
         }
     }
+
+    pub fn process_wheel(&mut self, event: &web_sys::WheelEvent) -> Option<(i32, DVec2)> {
+        let offset_x = js_sys::Reflect::get(&event, &"offsetX".into()).unwrap().as_f64().unwrap();
+        let offset_y = js_sys::Reflect::get(&event, &"offsetY".into()).unwrap().as_f64().unwrap();
+        let offset = dvec2(offset_x, offset_y);
+        let clip = self.to_clip(offset);
+        let delta = event.delta_y().signum() as i32;
+        match self.state {
+            GestureState::Idle => Some((delta, clip)),
+            _ => None
+        }
+    }
 }

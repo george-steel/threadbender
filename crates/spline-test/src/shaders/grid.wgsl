@@ -40,7 +40,7 @@ struct GridVSOut {
 
     var out: GridVSOut;
     out.clip_pos = vec4f(clip_pos, 1.0, 1.0);
-    out.color = unpack4h(colorh);
+    out.color = unpack4h_premul(colorh);
     return out;
 }
 

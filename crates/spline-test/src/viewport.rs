@@ -20,13 +20,25 @@ impl ViewportWindow {
         DAffine2::from_scale(scales) * DAffine2::from_translation(-self.center)
     }
 
-    pub fn scrolled(&self, zoom: f64, trans: DVec2) -> Self {
+    pub fn scrolled(&self, zoom: f64, clip_trans: DVec2) -> Self {
         let new_zoom = zoom * self.px_per_unit;
-        let new_center = self.center - trans * (0.5 / new_zoom) * self.viewport_dims.as_dvec2();
+        let new_center = self.center - clip_trans * (0.5 / new_zoom) * self.viewport_dims.as_dvec2();
         ViewportWindow {
             center: new_center,
             px_per_unit: new_zoom,
             viewport_dims: self.viewport_dims,
+        }
+    }
+
+    pub fn zoomed_to(&self, new_zoom: f64, keep_clip: DVec2) -> Self {
+        let old_scales = (2.0 * self.px_per_unit) / self.viewport_dims.as_dvec2();
+        let keep_point = keep_clip / old_scales + self.center;
+        let zoom_by = self.px_per_unit / new_zoom;
+        let new_center = keep_point.lerp(self.center, zoom_by);
+        ViewportWindow {
+            center: new_center,
+            px_per_unit: new_zoom,
+            viewport_dims: self.viewport_dims
         }
     }
 
@@ -145,6 +157,15 @@ impl ViewportScroller {
                 (None, false)
             },
         }
+    }
+
+    pub const STEPS_PER_OCTAVE: i32 = 6;
+
+    pub fn handle_wheel(&mut self, delta: i32, clip: DVec2) {
+        let old_step = Self::STEPS_PER_OCTAVE as f64 * self.current_view.px_per_unit.log2();
+        let new_step = old_step.round() - delta as f64;
+        let new_zoom = (new_step / Self::STEPS_PER_OCTAVE as f64).exp2();
+        self.current_view = self.current_view.zoomed_to(new_zoom, clip);
     }
 
     pub fn handle_resize(&mut self, device_size: UVec2) {

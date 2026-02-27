@@ -4,7 +4,7 @@ use std::mem::replace;
 use clone_all::clone_all;
 use leptos::{html::{Canvas, tr}, prelude::*, task::spawn_local};
 use glam::{DVec2, UVec2, dvec2, uvec2};
-use web_sys::{PointerEvent, js_sys};
+use web_sys::{PointerEvent, WheelEvent, js_sys};
 
 use crate::{gputil::GPUContext, grid::{GridParams, GridUniforms, GriddedRenderer}, pointer::GestureRecognizer, util::resize::{ResizeObserverHandle, auto_resize_canvas}, viewport::{ViewportScroller, WorldMouseEvent}};
 
@@ -80,6 +80,24 @@ pub fn GriddedDisplay(
         }
     };
 
+    let on_wheel_event = move |raw_event: WheelEvent| {
+        let need_refresh = state_ref.try_update_value(|maybe_state|{
+            if let Some(state) = maybe_state {
+                if let Some((delta, clip)) = state.gestures.process_wheel(&raw_event) {
+                    state.scroller.handle_wheel(delta, clip);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        });
+        if let Some(true) = need_refresh {
+            refresh();
+        }
+    };
+
     let on_resize = move |css_size: DVec2, device_size: UVec2| {
         state_ref.try_update_value(|maybe_state|{
             if let Some(state) = maybe_state {
@@ -96,6 +114,14 @@ pub fn GriddedDisplay(
         });
         refresh();
     };
+
+    Effect::watch(
+        move || {
+            grid_params.read();
+        },
+        move |_, _, _| {refresh();},
+        false
+    );
 
     canvas_ref.on_load(move |canvas| {
         spawn_local({clone_all!(canvas); async move {
@@ -144,5 +170,6 @@ pub fn GriddedDisplay(
         on:pointerenter=on_pointer_event
         on:pointerleave=on_pointer_event
         on:pointercancel=on_pointer_event
+        on:wheel=on_wheel_event
     />}
 }
