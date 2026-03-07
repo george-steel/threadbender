@@ -1,15 +1,16 @@
 use core::num;
+use std::num::NonZero;
 
 use bytemuck::bytes_of;
 use glam::{Affine2, UVec2, Vec2};
 use half::f16;
 use image::flat::View;
-use wgpu::{BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BlendComponent, BlendState, Buffer, BufferBinding, BufferUsages, Color, ColorTargetState, ColorWrites, CommandEncoderDescriptor, FragmentState, MultisampleState, Operations, PipelineLayoutDescriptor, PrimitiveState, RenderPass, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderModule, ShaderStages, Surface, SurfaceError, Texture, TextureDimension, TextureUsages, TextureView, VertexState, wgt::{BufferDescriptor, TextureDescriptor, TextureViewDescriptor}};
+use wgpu::{BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BlendComponent, BlendState, Buffer, BufferBinding, BufferUsages, Color, ColorTargetState, ColorWrites, CommandEncoderDescriptor, FragmentState, MultisampleState, Operations, PipelineLayoutDescriptor, PrimitiveState, RenderPass, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderModule, ShaderStages, Surface, SurfaceError, Texture, TextureDimension, TextureUsages, TextureView, VertexState, util::{BufferInitDescriptor, DeviceExt}, wgt::{BufferDescriptor, TextureDescriptor, TextureViewDescriptor}};
 
 use crate::{gputil::{GPUContext, extent_2d}, shaders, viewport::{ViewportUniforms, ViewportWindow}};
 
 // GPU-friendly colour values. These are not gamma-encoded
-#[derive(Copy, Clone, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Copy, Clone, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C, align(8))]
 pub struct RGBA16f {
     pub r: f16,
@@ -19,13 +20,22 @@ pub struct RGBA16f {
 }
 
 impl RGBA16f {
-    pub fn rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
+    pub const fn rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
         RGBA16f {
-            r: f16::from_f32(r),
-            g: f16::from_f32(g),
-            b: f16::from_f32(b),
-            a: f16::from_f32(a),
+            r: f16::from_f32_const(r),
+            g: f16::from_f32_const(g),
+            b: f16::from_f32_const(b),
+            a: f16::from_f32_const(a),
          }
+    }
+
+    pub fn to_wgpu_color(&self) -> wgpu::Color {
+        wgpu::Color {
+            r: self.r.into(),
+            g: self.g.into(),
+            b: self.b.into(),
+            a: self.a.into(),
+        }
     }
 }
 
@@ -40,32 +50,51 @@ pub struct GridParams {
     pub background_color: RGBA16f,
 }
 
-#[derive(Copy, Clone, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-#[repr(C)]
-pub struct GridUniforms {
-    pub viewport: ViewportUniforms,
-    pub params: GridParams,
+fn num_grid_lines(view: &ViewportWindow, params: &GridParams) -> u32 {
+    let (sw, ne) = view.as_rect();
+    ((ne - sw) / params.line_spacing as f64).floor().as_uvec2().max_element()
 }
 
-impl GridUniforms {
-    pub fn num_lines(&self) -> UVec2 {
-        ((self.viewport.ne - self.viewport.sw) / self.params.line_spacing).floor().as_uvec2()
-    }
-}
 
-pub struct GriddedRenderer {
-    grid_shaders: ShaderModule,
+pub struct LineEditRenderer {
+    gpu: GPUContext,
+
+    view_bg_layout: BindGroupLayout,
+    current_view: ViewportWindow,
+    view_unif: Buffer,
+    view_bg: BindGroup,
+
     grid_pipeline: RenderPipeline,
+    current_grid: GridParams,
     grid_unif: Buffer,
     grid_bg: BindGroup,
+
     msaa_tex: Texture,
     msaa_view: TextureView,
     canvas: Surface<'static>,
     last_size: UVec2,
 }
 
-impl GriddedRenderer {
-    pub fn new(gpu: &GPUContext, canvas: Surface<'static>, size: UVec2) -> Self {
+impl LineEditRenderer {
+    pub fn new(
+        gpu: &GPUContext,
+        canvas: Surface<'static>,
+        size: UVec2,
+        view: &ViewportWindow,
+        grid: &GridParams,
+    ) -> Self {
+        let view_bg_layout = gpu.device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("grid_bg_layout"),
+            entries: &[
+                BindGroupLayoutEntry{
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: NonZero::new(size_of::<ViewportUniforms>() as u64)},
+                    count: None,
+                }
+            ]
+        });
+
         let grid_shaders = gpu.process_shader_module("grid.wgsl", shaders::GRID);
         let grid_bg_layout = gpu.device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("grid_bg_layout"),
@@ -73,14 +102,14 @@ impl GriddedRenderer {
                 BindGroupLayoutEntry{
                     binding: 0,
                     visibility: ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: NonZero::new(size_of::<GridParams>() as u64)},
                     count: None,
                 }
             ]
         });
         let grid_pipeline_layout = gpu.device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("grid_pipeline_layout"),
-            bind_group_layouts: &[&grid_bg_layout],
+            bind_group_layouts: &[&view_bg_layout, &grid_bg_layout],
             immediate_size: 0,
         });
         let grid_pipeline = gpu.device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -120,11 +149,30 @@ impl GriddedRenderer {
             cache: None,
         });
 
-        let grid_unif = gpu.device.create_buffer(&BufferDescriptor {
-            label: Some("grid_unif"),
-            size: size_of::<GridUniforms>() as u64,
+        let view_unif = gpu.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("view_unif"),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
+            contents: bytemuck::bytes_of(&view.to_uniforms()),
+        });
+
+        let view_bg = gpu.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("view_bg"),
+            layout: &view_bg_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Buffer(BufferBinding {
+                    buffer: &view_unif,
+                    offset: 0,
+                    size: None,
+                }),
+            }],
+        });
+
+
+        let grid_unif = gpu.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("grid_unif"),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            contents: bytemuck::bytes_of(grid),
         });
 
         let grid_bg = gpu.device.create_bind_group(&BindGroupDescriptor {
@@ -154,49 +202,57 @@ impl GriddedRenderer {
 
         gpu.configure_surface_target(&canvas, size);
 
-        GriddedRenderer {
-            grid_shaders, grid_pipeline,
-            grid_unif, grid_bg,
+        LineEditRenderer {
+            gpu: gpu.clone(),
+            view_bg_layout,
+            grid_pipeline,
+            view_unif, view_bg, current_view: *view,
+            grid_unif, grid_bg, current_grid: *grid,
             msaa_tex, msaa_view, canvas,
             last_size: size
         }
     }
 
-    pub fn resize(&mut self, gpu: &GPUContext, size: UVec2) {
+    pub fn resize(&mut self, size: UVec2) {
         if self.last_size == size { return; }
 
         self.msaa_tex.destroy();
-        self.msaa_tex = gpu.device.create_texture(&TextureDescriptor {
+        self.msaa_tex = self.gpu.device.create_texture(&TextureDescriptor {
             label: Some("msaa_tex"),
             size: extent_2d(size),
             mip_level_count: 1,
             sample_count: 4,
             dimension: TextureDimension::D2,
-            format: gpu.output_format,
+            format: self.gpu.output_format,
             usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TRANSIENT,
             view_formats: &[],
         });
         self.msaa_view = self.msaa_tex.create_view(&Default::default());
-        gpu.configure_surface_target(&self.canvas, size);
+        self.gpu.configure_surface_target(&self.canvas, size);
         log::info!("resize msaa buffer {}", size);
 
         self.last_size = size;
     }
 
-    pub fn render(&self,
-        gpu: &GPUContext,
-        grid_uniforms: &GridUniforms,
-        mut render_children: impl FnMut(&GPUContext, &mut RenderPass),
-    ) -> Result<(), SurfaceError> {
+    pub fn set_viewport(&mut self, view: &ViewportWindow) {
+        self.current_view = *view;
+        self.gpu.queue.write_buffer(&self.view_unif, 0, bytes_of(&view.to_uniforms()));
+    }
+
+    pub fn set_grid_params(&mut self, params: &GridParams) {
+        self.gpu.queue.write_buffer(&self.grid_unif, 0, bytes_of(params));
+    }
+
+    pub fn render(&self) -> Result<(), SurfaceError> {
         let out_tex = self.canvas.get_current_texture()?;
         let out_view = out_tex.texture.create_view(&TextureViewDescriptor {
-            format: Some(gpu.output_format),
+            format: Some(self.gpu.output_format),
             ..Default::default()
         });
 
-        gpu.queue.write_buffer(&self.grid_unif, 0, bytes_of(grid_uniforms));
+        
 
-        let mut command_encoder = gpu.device.create_command_encoder(&CommandEncoderDescriptor { label: Some("gridded_renderer") });
+        let mut command_encoder = self.gpu.device.create_command_encoder(&CommandEncoderDescriptor { label: Some("gridded_renderer") });
 
         {
             let mut main_pass = command_encoder.begin_render_pass(&RenderPassDescriptor {
@@ -206,12 +262,7 @@ impl GriddedRenderer {
                     depth_slice: None,
                     resolve_target: Some(&out_view),
                     ops: Operations {
-                        load: wgpu::LoadOp::Clear(Color {
-                            r: grid_uniforms.params.background_color.r.to_f64(),
-                            g: grid_uniforms.params.background_color.g.to_f64(),
-                            b: grid_uniforms.params.background_color.b.to_f64(),
-                            a: grid_uniforms.params.background_color.a.to_f64(),
-                        }),
+                        load: wgpu::LoadOp::Clear(self.current_grid.background_color.to_wgpu_color()),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -220,18 +271,17 @@ impl GriddedRenderer {
             });
 
             main_pass.set_pipeline(&self.grid_pipeline);
-            main_pass.set_bind_group(0, &self.grid_bg, &[]);
+            main_pass.set_bind_group(0, &self.view_bg, &[]);
+            main_pass.set_bind_group(1, &self.grid_bg, &[]);
             
-            let num_lines = grid_uniforms.num_lines().max_element();
-            log::info!("drawing {} lines", num_lines);
+            let num_lines = num_grid_lines(&self.current_view, &self.current_grid);
             if num_lines != 0 {
                 main_pass.draw(0..(2*num_lines), 0..2);
             }
 
-            render_children(&gpu, &mut main_pass);
         }
 
-        gpu.queue.submit([command_encoder.finish()]);
+        self.gpu.queue.submit([command_encoder.finish()]);
         out_tex.present();
         Ok(())
     }

@@ -1,4 +1,4 @@
-use glam::{DAffine2, DVec2, UVec2, Vec2};
+use glam::{DAffine2, DVec2, UVec2, Vec2, uvec2};
 
 use crate::pointer::GestureEvent;
 
@@ -7,9 +7,17 @@ pub struct ViewportWindow {
     pub center: DVec2,
     pub px_per_unit: f64,
     pub viewport_dims: UVec2,
+    pub css_px_ratio: f64,
 }
 
 impl ViewportWindow {
+    pub const PLACEHOLDER: Self = ViewportWindow {
+        center: DVec2::ZERO,
+        px_per_unit: 10.0,
+        viewport_dims: uvec2(800, 600),
+        css_px_ratio: 1.0,
+    };
+
     pub fn as_rect(&self) -> (DVec2, DVec2) {
         let radii = (0.5 / self.px_per_unit) * self.viewport_dims.as_dvec2();
         (self.center - radii, self.center + radii)
@@ -27,6 +35,7 @@ impl ViewportWindow {
             center: new_center,
             px_per_unit: new_zoom,
             viewport_dims: self.viewport_dims,
+            css_px_ratio: self.css_px_ratio,
         }
     }
 
@@ -38,7 +47,8 @@ impl ViewportWindow {
         ViewportWindow {
             center: new_center,
             px_per_unit: new_zoom,
-            viewport_dims: self.viewport_dims
+            viewport_dims: self.viewport_dims,
+            css_px_ratio: self.css_px_ratio,
         }
     }
 
@@ -47,6 +57,7 @@ impl ViewportWindow {
             center: self.center,
             px_per_unit: self.px_per_unit,
             viewport_dims: new_size,
+            css_px_ratio: self.css_px_ratio,
         }
     }
 
@@ -54,7 +65,13 @@ impl ViewportWindow {
         let scales = ((2.0 * self.px_per_unit) / self.viewport_dims.as_dvec2()).as_vec2();
         let trans = - scales * self.center.as_vec2();
         let (sw, ne) = self.as_rect();
-        ViewportUniforms { scales, trans, sw: sw.as_vec2(), ne: ne.as_vec2() }
+        ViewportUniforms {
+            scales, trans,
+            sw: sw.as_vec2(), ne: ne.as_vec2(),
+            px_size: self.viewport_dims,
+            css_ratio: self.css_px_ratio as f32,
+            pad0: 0,
+        }
     }
 }
 
@@ -66,6 +83,9 @@ pub struct ViewportUniforms {
     pub trans: Vec2,
     pub sw: Vec2,
     pub ne: Vec2,
+    pub px_size: UVec2,
+    pub css_ratio: f32,
+    pub pad0: i32,
 }
 
 impl ViewportUniforms {
@@ -93,12 +113,20 @@ pub struct ViewportScroller {
 }
 
 impl ViewportScroller {
-    pub fn new(device_size: UVec2, show_radius: DVec2) -> Self {
+    pub fn placeholder() -> Self {
+        ViewportScroller {
+            current_view: ViewportWindow::PLACEHOLDER,
+            scroll_start: None,
+        }
+    }
+
+    pub fn new_from_dims(device_size: UVec2, css_ratio: f64, show_radius: DVec2) -> Self {
         let zoom = (device_size.as_dvec2() / (show_radius * 2.0)).min_element();
         let view = ViewportWindow {
             center: DVec2::ZERO,
             px_per_unit: zoom,
             viewport_dims: device_size,
+            css_px_ratio: css_ratio
         };
         Self {
             current_view: view,
@@ -106,9 +134,9 @@ impl ViewportScroller {
         }
     }
 
-    pub fn handle_gesture(&mut self, event: GestureEvent) -> (Option<WorldMouseEvent>, bool) {
+    pub fn handle_gesture(&mut self, event: GestureEvent) -> (Option<WorldMouseEvent>, bool, ViewportWindow) {
         let from_clip = self.current_view.to_clip().inverse();
-        match event {
+        let (world_event, moved) = match event {
             GestureEvent::Out => {
                 (Some(WorldMouseEvent::Out), false)
             },
@@ -156,21 +184,24 @@ impl ViewportScroller {
                 self.scroll_start = None;
                 (None, false)
             },
-        }
+        };
+        (world_event, moved, self.current_view)
     }
 
     pub const STEPS_PER_OCTAVE: i32 = 6;
 
-    pub fn handle_wheel(&mut self, delta: i32, clip: DVec2) {
+    pub fn handle_wheel(&mut self, delta: i32, clip: DVec2) -> ViewportWindow {
         let old_step = Self::STEPS_PER_OCTAVE as f64 * self.current_view.px_per_unit.log2();
         let new_step = old_step.round() - delta as f64;
         let new_zoom = (new_step / Self::STEPS_PER_OCTAVE as f64).exp2();
         self.current_view = self.current_view.zoomed_to(new_zoom, clip);
+        self.current_view
     }
 
-    pub fn handle_resize(&mut self, device_size: UVec2) {
+    pub fn handle_resize(&mut self, device_size: UVec2) -> ViewportWindow {
         self.current_view = self.current_view.resized(device_size);
         self.scroll_start = None;
+        self.current_view
     }
 }
 
@@ -186,7 +217,8 @@ mod tests {
         let viewport = ViewportWindow {
             center: dvec2(50.0, 50.0),
             px_per_unit: 2.0,
-            viewport_dims: uvec2(100, 100)
+            viewport_dims: uvec2(100, 100),
+            css_px_ratio: 1.5
         };
         let (sw, ne) = viewport.as_rect();
         assert_eq!(sw, dvec2(25.0, 25.0));

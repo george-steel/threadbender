@@ -10,6 +10,7 @@ use crate::shaders;
 pub mod asset;
 pub use asset::AssetSource;
 
+#[derive(Clone)]
 pub struct GPUContext {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
@@ -21,7 +22,7 @@ pub struct GPUContext {
 
 
 impl GPUContext {
-    pub async fn with_limits(instance: wgpu::Instance, for_surface: Option<&wgpu::Surface<'_>>, mut features: wgpu::Features, limits: wgpu::Limits) -> Self {
+    pub async fn with_limits(instance: wgpu::Instance, for_surface: Option<&wgpu::Surface<'_>>, features: wgpu::Features, limits: wgpu::Limits) -> Self {
         let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions{
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: for_surface,

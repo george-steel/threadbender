@@ -1,7 +1,6 @@
 #include global.wgsl
 
 struct GridUniforms {
-    view: Viewport,
     line_spacing: f32,
     major_every: u32,
     line_color: pack4h,
@@ -10,7 +9,8 @@ struct GridUniforms {
     background_color: pack4h,
 }
 
-@group(0) @binding(0) var<uniform> params: GridUniforms;
+@group(0) @binding(0) var<uniform> view: Viewport;
+@group(1) @binding(0) var<uniform> params: GridUniforms;
 
 struct GridVSOut {
     @builtin(position) clip_pos: vec4f,
@@ -18,18 +18,18 @@ struct GridVSOut {
 }
 
 @vertex fn grid_line_vert(@builtin(vertex_index) vert: u32, @builtin(instance_index) inst: u32) -> GridVSOut {
-    let start = select(params.view.sw.x, params.view.sw.y, inst != 0);
+    let start = select(view.sw.x, view.sw.y, inst != 0);
     let offset = i32(ceil(start / params.line_spacing));
     let line = (i32(vert) / 2) + offset;
     let line_pos = f32(line) * params.line_spacing;
 
     var world_pos: vec2f;
     if inst == 0 {
-        world_pos = vec2f(line_pos, select(params.view.sw.y, params.view.ne.y, (vert % 2) == 0));
+        world_pos = vec2f(line_pos, select(view.sw.y, view.ne.y, (vert % 2) == 0));
     } else {
-        world_pos = vec2f(select(params.view.sw.x, params.view.ne.x, (vert % 2) == 0), line_pos);
+        world_pos = vec2f(select(view.sw.x, view.ne.x, (vert % 2) == 0), line_pos);
     }
-    let clip_pos = params.view.scales * world_pos + params.view.trans;
+    let clip_pos = view.scales * world_pos + view.trans;
 
     var colorh = params.line_color;
     if line == 0 {

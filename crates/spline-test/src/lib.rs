@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{HtmlCanvasElement, HtmlElement, PointerEvent, window};
 use wgpu::Surface;
 use leptos::{html::P, prelude::*};
-use crate::{gputil::GPUContext, grid::{GridParams, GridUniforms, GriddedRenderer, RGBA16f}, viewport::{ViewportScroller, WorldMouseEvent}, display::GriddedDisplay};
+use crate::{display::GriddedDisplay, gputil::GPUContext, renderer::{GridParams, LineEditRenderer, RGBA16f}, viewport::{ViewportScroller, ViewportWindow, WorldMouseEvent}};
 
 
 pub mod gputil;
@@ -13,7 +13,7 @@ pub mod util;
 mod shaders;
 mod viewport;
 mod pointer;
-mod grid;
+mod renderer;
 mod display;
 
 fn GrabbingP(message: String) -> impl IntoView {
@@ -41,7 +41,7 @@ fn App() -> impl IntoView {
     });
 
     let messages = RwSignal::new(VecDeque::<String>::new());
-    let on_mouse = move |ev:WorldMouseEvent| {
+    let on_mouse = move |ev:WorldMouseEvent, _: &ViewportWindow| {
         let msg = format!("{:?}", ev);
         messages.update(|q| {
             q.push_back(msg);

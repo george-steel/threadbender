@@ -3,6 +3,9 @@ struct Viewport {
     trans: vec2f,
     sw: vec2f,
     ne: vec2f,
+    px_size: vec2u,
+    css_ratio: f32,
+    pad0: u32
 }
 
 // packed as vec4h;
