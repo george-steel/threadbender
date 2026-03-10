@@ -6,12 +6,13 @@ use leptos::{html::{Canvas, tr}, prelude::*, task::spawn_local};
 use glam::{DVec2, UVec2, dvec2, uvec2};
 use web_sys::{PointerEvent, WheelEvent, js_sys};
 
-use crate::{gputil::GPUContext, pointer::GestureRecognizer, renderer::{GridParams, LineEditRenderer}, util::{Mailbox, resize::{ResizeObserverHandle, auto_resize_canvas}}, viewport::{ViewportScroller, ViewportWindow, WorldMouseEvent}};
+use crate::{gputil::GPUContext, line::DisplayHandle, pointer::GestureRecognizer, renderer::{GridParams, LineEditRenderer}, util::{Mailbox, resize::{ResizeObserverHandle, auto_resize_canvas}}, viewport::{ViewportScroller, ViewportWindow, WorldMouseEvent}};
 
 
 #[component]
 pub fn GriddedDisplay(
     grid_params: Signal<GridParams>,
+    handles: Signal<Vec<DisplayHandle>>,
     on_mouse: impl Fn(WorldMouseEvent, &ViewportWindow) + Copy + 'static,
 ) -> impl IntoView {
     let canvas_ref = NodeRef::<Canvas>::new();
@@ -22,11 +23,13 @@ pub fn GriddedDisplay(
     let scroller_state = StoredValue::new(ViewportScroller::placeholder());
 
     let renderer_state: StoredValue::<(Option<LineEditRenderer>, bool), _> = StoredValue::new_local((None, true));
-
-
-    let need_redraw = Trigger::new();
-    let viewport_box = Mailbox::new_scoped(viewport.into(), need_redraw);
-    let grid_box = Mailbox::new_scoped(grid_params.into(), need_redraw);
+    
+    
+    let need_redraw = ArcTrigger::new();
+    let viewport_box = Mailbox::new_scoped(viewport.into(), need_redraw.clone());
+    let grid_box = Mailbox::new_scoped(grid_params.into(), need_redraw.clone());
+    log::info!("{:?}", handles.get_untracked());
+    let handles_box: Mailbox<Vec<DisplayHandle>> = Mailbox::new_scoped(handles.into(), need_redraw.clone());
 
     let on_frame = move || {
         if let Some((Some(renderer), pending)) = renderer_state.try_write_value().as_deref_mut() {
@@ -37,6 +40,9 @@ pub fn GriddedDisplay(
             }
             if let Some(grid) = grid_box.get_new() {
                 renderer.set_grid_params(&grid);
+            }
+            if let Some(h) = handles_box.get_new() {
+                renderer.set_handles(&h);
             }
 
             let res = renderer.render();
@@ -60,10 +66,11 @@ pub fn GriddedDisplay(
         }
     };
 
+    {clone_all!(need_redraw);
     Effect::new(move || {
         need_redraw.track();
         refresh();
-    });
+    });}
 
     let on_pointer_event = move |raw_event: PointerEvent| {
         let cooked_events = gesture_state.write_value().process_event(&raw_event);

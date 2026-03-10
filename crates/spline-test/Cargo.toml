@@ -30,7 +30,5 @@ web-sys = {version = "0.3.90", features = [
 ]}
 getrandom = {version = "0.4.1", features = ["wasm_js"]}
 half = {version = "2.7.1", features=["bytemuck"]}
-leptos = {version = "0.8.16", features=["csr"]}
+leptos = {version = "0.8.17", features=["csr"]}
 clone_all = "0.1.1"
-
-

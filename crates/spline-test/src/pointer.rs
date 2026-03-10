@@ -112,7 +112,7 @@ impl GestureRecognizer {
             GestureState::Down(pressed, started) => {
                 if ptr == pressed && offset.distance(started) >= Self::MIN_DRAG_DIST {
                     self.state = GestureState::Dragging(pressed, started);
-                    let start_clip = (dvec2(3.0, -2.0) * started / self.css_size) + dvec2(-1.0, 1.0);
+                    let start_clip = self.to_clip(started);
                     vec![GestureEvent::DragStart(start_clip), GestureEvent::DragMove(clip)]
                 } else {
                     Vec::new()

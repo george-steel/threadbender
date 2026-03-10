@@ -1,3 +1,5 @@
+use std::mem::replace;
+
 use leptos::prelude::{guards::{ReadGuard}, *};
 
 pub mod resize;
@@ -10,31 +12,36 @@ struct MailboxInner<T> where
     dirty: bool,
 }
 
-#[derive(Clone, Copy)]
 pub struct Mailbox<T> where
     T: Send + Sync + 'static,
 {
     inner: ArenaItem<MailboxInner<T>>,
 }
 
+// Copy regardless of tinnte type, unlike the Derive
+impl<T> Copy for Mailbox<T> where T: Send + Sync + 'static {}
+
+impl<T> Clone for Mailbox<T> where
+    T: Send + Sync + 'static,
+{
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
 impl<T> Mailbox<T> where
     T: Send + Sync + 'static,
 {
-    pub fn new_scoped(sig: ArcSignal<T>, trigger: Trigger) -> Self {
+    pub fn new_scoped(sig: ArcSignal<T>, trigger: ArcTrigger) -> Self {
         let mailbox = ArenaItem::new(MailboxInner {
             signal: sig.clone(),
             dirty: true,
         });
 
-        ImmediateEffect::new_scoped(move|| {
+        Effect::new(move|| {
             sig.track();
             let new_write = mailbox.try_update_value(|inner| {
-                if inner.dirty {
-                    false
-                } else {
-                    inner.dirty = true;
-                    true
-                }
+                !replace(&mut inner.dirty, true)
             });
             if new_write == Some(true) {
                 trigger.notify();

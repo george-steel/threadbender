@@ -3,3 +3,5 @@ pub const INCLUDES: &[(&str, &str)] = &[
 ];
 
 pub const GRID: &str = include_str!("grid.wgsl");
+
+pub const HANDLES: &str = include_str!("handles.wgsl");

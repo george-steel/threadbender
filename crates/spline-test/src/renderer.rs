@@ -7,7 +7,7 @@ use half::f16;
 use image::flat::View;
 use wgpu::{BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BlendComponent, BlendState, Buffer, BufferBinding, BufferUsages, Color, ColorTargetState, ColorWrites, CommandEncoderDescriptor, FragmentState, MultisampleState, Operations, PipelineLayoutDescriptor, PrimitiveState, RenderPass, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderModule, ShaderStages, Surface, SurfaceError, Texture, TextureDimension, TextureUsages, TextureView, VertexState, util::{BufferInitDescriptor, DeviceExt}, wgt::{BufferDescriptor, TextureDescriptor, TextureViewDescriptor}};
 
-use crate::{gputil::{GPUContext, extent_2d}, shaders, viewport::{ViewportUniforms, ViewportWindow}};
+use crate::{gputil::{GPUContext, extent_2d}, line::DisplayHandle, shaders, viewport::{ViewportUniforms, ViewportWindow}};
 
 // GPU-friendly colour values. These are not gamma-encoded
 #[derive(Debug, Copy, Clone, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
@@ -69,6 +69,11 @@ pub struct LineEditRenderer {
     grid_unif: Buffer,
     grid_bg: BindGroup,
 
+    handle_pipeline: RenderPipeline,
+    num_handles: usize,
+    handle_buf: Buffer,
+    handle_bg: BindGroup,
+
     msaa_tex: Texture,
     msaa_view: TextureView,
     canvas: Surface<'static>,
@@ -76,6 +81,8 @@ pub struct LineEditRenderer {
 }
 
 impl LineEditRenderer {
+    const MAX_HANDLES: usize = 1024;
+
     pub fn new(
         gpu: &GPUContext,
         canvas: Surface<'static>,
@@ -168,7 +175,6 @@ impl LineEditRenderer {
             }],
         });
 
-
         let grid_unif = gpu.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("grid_unif"),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
@@ -180,13 +186,73 @@ impl LineEditRenderer {
             layout: &grid_bg_layout,
             entries: &[BindGroupEntry {
                 binding: 0,
-                resource: BindingResource::Buffer(BufferBinding {
-                    buffer: &grid_unif,
-                    offset: 0,
-                    size: None,
-                }),
+                resource: grid_unif.as_entire_binding(),
             }],
         });
+
+        let handle_shaders = gpu.process_shader_module("handles.wgsl", shaders::HANDLES);
+        let handle_bg_layout = gpu.device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("handle_bg_layout"),
+            entries: &[
+                BindGroupLayoutEntry{
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None},
+                    count: None,
+                }
+            ]
+        });
+        let handle_pipeline_layout = gpu.device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("handle_pipeline_layout"),
+            bind_group_layouts: &[&view_bg_layout, &handle_bg_layout],
+            immediate_size: 0,
+        });
+        let handle_pipeline = gpu.device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("handle_pipeline"),
+            layout: Some(&handle_pipeline_layout),
+            vertex: VertexState {
+                module: &handle_shaders,
+                entry_point: Some("handles_vert"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(FragmentState {
+                module: &handle_shaders,
+                entry_point: Some("handles_frag"),
+                compilation_options: Default::default(),
+                targets: &[Some(gpu.output_format.into())],
+            }),
+            primitive: PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: MultisampleState {
+                count: 4,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let handle_buf = gpu.device.create_buffer(&BufferDescriptor {
+            label: Some("handle_buf"),
+            size: (Self::MAX_HANDLES * size_of::<DisplayHandle>()) as u64, 
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let handle_bg = gpu.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("handle_bg"),
+            layout: &handle_bg_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: handle_buf.as_entire_binding(),
+            }],
+        });
+
+        
 
         let msaa_tex = gpu.device.create_texture(&TextureDescriptor {
             label: Some("msaa_tex"),
@@ -208,6 +274,8 @@ impl LineEditRenderer {
             grid_pipeline,
             view_unif, view_bg, current_view: *view,
             grid_unif, grid_bg, current_grid: *grid,
+            handle_pipeline,
+            handle_buf, handle_bg, num_handles: 0,
             msaa_tex, msaa_view, canvas,
             last_size: size
         }
@@ -243,17 +311,26 @@ impl LineEditRenderer {
         self.gpu.queue.write_buffer(&self.grid_unif, 0, bytes_of(params));
     }
 
+    pub fn set_handles(&mut self, handles: &[DisplayHandle]) {
+        let mut num_handles = handles.len();
+        if num_handles > Self::MAX_HANDLES {
+            log::error!("too many handles to draw: {}", num_handles);
+            num_handles = Self::MAX_HANDLES;
+        }
+
+        self.num_handles = num_handles;
+        self.gpu.queue.write_buffer(&self.handle_buf, 0, bytemuck::cast_slice(&handles[0..num_handles]));
+    }
+
     pub fn render(&self) -> Result<(), SurfaceError> {
         let out_tex = self.canvas.get_current_texture()?;
+        //log::info!("render");
         let out_view = out_tex.texture.create_view(&TextureViewDescriptor {
             format: Some(self.gpu.output_format),
             ..Default::default()
         });
 
-        
-
         let mut command_encoder = self.gpu.device.create_command_encoder(&CommandEncoderDescriptor { label: Some("gridded_renderer") });
-
         {
             let mut main_pass = command_encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("main_pass"),
@@ -270,15 +347,21 @@ impl LineEditRenderer {
                 ..Default::default()
             });
 
-            main_pass.set_pipeline(&self.grid_pipeline);
             main_pass.set_bind_group(0, &self.view_bg, &[]);
-            main_pass.set_bind_group(1, &self.grid_bg, &[]);
-            
+
             let num_lines = num_grid_lines(&self.current_view, &self.current_grid);
             if num_lines != 0 {
+                main_pass.set_pipeline(&self.grid_pipeline);
+                main_pass.set_bind_group(1, &self.grid_bg, &[]);
                 main_pass.draw(0..(2*num_lines), 0..2);
             }
 
+            if self.num_handles != 0 {
+                let verts = 6 * self.num_handles as u32;
+                main_pass.set_pipeline(&self.handle_pipeline);
+                main_pass.set_bind_group(1, &self.handle_bg, &[]);
+                main_pass.draw(0..verts, 0..1);
+            }
         }
 
         self.gpu.queue.submit([command_encoder.finish()]);

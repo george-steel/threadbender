@@ -1,11 +1,11 @@
 use std::{collections::VecDeque, io::Cursor, sync::Arc};
 
-use glam::{UVec2, dvec2, uvec2};
+use glam::{DVec2, UVec2, dvec2, ivec2};
 use wasm_bindgen::prelude::*;
 use web_sys::{HtmlCanvasElement, HtmlElement, PointerEvent, window};
 use wgpu::Surface;
 use leptos::{html::P, prelude::*};
-use crate::{display::GriddedDisplay, gputil::GPUContext, renderer::{GridParams, LineEditRenderer, RGBA16f}, viewport::{ViewportScroller, ViewportWindow, WorldMouseEvent}};
+use crate::{display::GriddedDisplay, gputil::GPUContext, line::LineEditState, renderer::{GridParams, LineEditRenderer, RGBA16f}, viewport::{ViewportScroller, ViewportWindow, WorldMouseEvent}};
 
 
 pub mod gputil;
@@ -15,6 +15,7 @@ mod viewport;
 mod pointer;
 mod renderer;
 mod display;
+mod line;
 
 fn GrabbingP(message: String) -> impl IntoView {
     let p_ref = NodeRef::<P>::new();
@@ -40,29 +41,26 @@ fn App() -> impl IntoView {
         background_color: RGBA16f::rgba(0.0, 0.0, 0.0, 0.0),
     });
 
-    let messages = RwSignal::new(VecDeque::<String>::new());
-    let on_mouse = move |ev:WorldMouseEvent, _: &ViewportWindow| {
-        let msg = format!("{:?}", ev);
-        messages.update(|q| {
-            q.push_back(msg);
-            if q.len() > 50 {
-                q.pop_front();
-            }
-        });
+    let init_line: Vec<DVec2> = (-10..10).map(|x: i32| {ivec2(x, x).as_dvec2()}).collect();
+    let true_line = ArcRwSignal::new(init_line);
+
+    let edit_state = StoredValue::new(LineEditState::new(true_line));
+    let on_mouse = move |ev:WorldMouseEvent, view: &ViewportWindow| {
+        if let Some(ref mut st) = edit_state.try_write_value() {
+            st.handle_mouse(&ev, view);
+        } else {
+            log::error!("edit_state is disposed");
+        }
     };
+
+    let handle_sig = edit_state.read_value().handles.clone();
 
     view!{
         <GriddedDisplay
             grid_params=grid_params.into()
+            handles=handle_sig.into()
             on_mouse=on_mouse
         />
-        <div id="event_log">
-            <For
-            each=move ||{messages.get()}
-            key=String::clone
-            children = GrabbingP
-            />
-        </div>
     }
 }
 
