@@ -208,11 +208,12 @@ impl ViewportScroller {
 
 #[cfg(test)]
 mod tests {
+    use wasm_bindgen_test::*;
     use glam::{dvec2, uvec2};
 
     use super::*;
 
-    #[test]
+    #[wasm_bindgen_test]
     fn test_viewport_window_clip() {
         let viewport = ViewportWindow {
             center: dvec2(50.0, 50.0),

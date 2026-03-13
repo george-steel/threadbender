@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/euler_spirals",
     "crates/spline-test",
 ]
 

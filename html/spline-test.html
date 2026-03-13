@@ -32,7 +32,7 @@ body {
 }
 </style>
 <script type="module">
-import init, {main} from "./pkg/spline_test.js";
+import init, {run_app} from "./pkg/spline_test.js";
 
 let canvas = document.getElementById("canvas");
 let log = document.getElementById("eventLog");
@@ -41,7 +41,7 @@ async function run() {
     await init();
     console.log("hello from js");
 
-    main();
+    run_app();
 }
 
 if (navigator.gpu) {

@@ -8,6 +8,8 @@ crate-type = ["cdylib", "rlib"]
 
 
 [dependencies]
+euler_spirals.path = "../euler_spirals"
+
 bytemuck.workspace = true
 glam.workspace = true
 log.workspace=true
@@ -32,3 +34,6 @@ getrandom = {version = "0.4.1", features = ["wasm_js"]}
 half = {version = "2.7.1", features=["bytemuck"]}
 leptos = {version = "0.8.17", features=["csr"]}
 clone_all = "0.1.1"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.64"

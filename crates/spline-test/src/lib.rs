@@ -65,7 +65,7 @@ fn App() -> impl IntoView {
 }
 
 #[wasm_bindgen]
-pub fn main() {
+pub fn run_app() {
     mount_to_body(App);
 }
 
