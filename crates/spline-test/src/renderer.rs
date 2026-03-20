@@ -2,6 +2,7 @@ use core::num;
 use std::num::NonZero;
 
 use bytemuck::bytes_of;
+use euler_spirals::SpiralSegFloat;
 use glam::{Affine2, UVec2, Vec2};
 use half::f16;
 use image::flat::View;
@@ -74,6 +75,11 @@ pub struct LineEditRenderer {
     handle_buf: Buffer,
     handle_bg: BindGroup,
 
+    spline_pipeline: RenderPipeline,
+    num_splines: usize,
+    spline_buf: Buffer,
+    spline_bg: BindGroup,
+
     spiral_test_pipeline: RenderPipeline,
 
     msaa_tex: Texture,
@@ -84,6 +90,7 @@ pub struct LineEditRenderer {
 
 impl LineEditRenderer {
     const MAX_HANDLES: usize = 1024;
+    const MAX_SPLINE_SEGS: usize = 128;
 
     pub fn new(
         gpu: &GPUContext,
@@ -254,6 +261,68 @@ impl LineEditRenderer {
             }],
         });
 
+        let spline_shaders = gpu.process_shader_module("spline_plot.wgsl", shaders::SPLINE_PLOT);
+        let spline_bg_layout = gpu.device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("spline_bg_layout"),
+            entries: &[
+                BindGroupLayoutEntry{
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None},
+                    count: None,
+                }
+            ]
+        });
+        let spline_pipeline_layout = gpu.device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("spline_pipeline_layout"),
+            bind_group_layouts: &[&view_bg_layout, &spline_bg_layout],
+            immediate_size: 0,
+        });
+        let spline_pipeline = gpu.device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("spline_pipeline"),
+            layout: Some(&spline_pipeline_layout),
+            vertex: VertexState {
+                module: &spline_shaders,
+                entry_point: Some("spline_plot_vert"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(FragmentState {
+                module: &spline_shaders,
+                entry_point: Some("spline_plot_frag"),
+                compilation_options: Default::default(),
+                targets: &[Some(gpu.output_format.into())],
+            }),
+            primitive: PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineStrip,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: MultisampleState {
+                count: 4,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let spline_buf = gpu.device.create_buffer(&BufferDescriptor {
+            label: Some("spline_buf"),
+            size: (Self::MAX_SPLINE_SEGS * size_of::<SpiralSegFloat>()) as u64, 
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let spline_bg = gpu.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("spline_bg"),
+            layout: &spline_bg_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: spline_buf.as_entire_binding(),
+            }],
+        });
+
         let spiral_shaders = gpu.process_shader_module("spiral_test.wgsl", shaders::SPIRAL_TEST);
         let spiral_pipeline_layout = gpu.device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("spiral_pipeline_layout"),
@@ -312,6 +381,8 @@ impl LineEditRenderer {
             grid_unif, grid_bg, current_grid: *grid,
             handle_pipeline,
             handle_buf, handle_bg, num_handles: 0,
+            spline_pipeline,
+            spline_buf, spline_bg, num_splines: 0,
             spiral_test_pipeline,
             msaa_tex, msaa_view, canvas,
             last_size: size
@@ -359,6 +430,17 @@ impl LineEditRenderer {
         self.gpu.queue.write_buffer(&self.handle_buf, 0, bytemuck::cast_slice(&handles[0..num_handles]));
     }
 
+    pub fn set_splines(&mut self, handles: &[SpiralSegFloat]) {
+        let mut num_splines = handles.len();
+        if num_splines > Self::MAX_SPLINE_SEGS {
+            log::error!("too many spline segments to draw: {}", num_splines);
+            num_splines = Self::MAX_SPLINE_SEGS;
+        }
+
+        self.num_splines = num_splines;
+        self.gpu.queue.write_buffer(&self.spline_buf, 0, bytemuck::cast_slice(&handles[0..num_splines]));
+    }
+
     pub fn render(&self) -> Result<(), SurfaceError> {
         let out_tex = self.canvas.get_current_texture()?;
         //log::info!("render");
@@ -401,6 +483,13 @@ impl LineEditRenderer {
                 main_pass.set_pipeline(&self.handle_pipeline);
                 main_pass.set_bind_group(1, &self.handle_bg, &[]);
                 main_pass.draw(0..verts, 0..1);
+            }
+
+            if self.num_splines != 0 {
+                let insts = self.num_splines as u32;
+                main_pass.set_pipeline(&self.spline_pipeline);
+                main_pass.set_bind_group(1, &self.spline_bg, &[]);
+                main_pass.draw(0..101, 0..insts);
             }
 
         }

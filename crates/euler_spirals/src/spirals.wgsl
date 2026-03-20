@@ -1,3 +1,4 @@
+const PI = 3.1415926535;
 
 fn timesi(a: vec2f) -> vec2f {
     return vec2f(-a.y, a.x);
@@ -5,6 +6,10 @@ fn timesi(a: vec2f) -> vec2f {
 
 fn cmul(a: vec2f, b: vec2f) -> vec2f {
     return vec2f(a.x * b.x - a.y * b.y, dot(a, b.yx));
+}
+
+fn crecip(a: vec2f) -> vec2f {
+    return vec2f(a.x, -a.y) / dot(a, a);
 }
 
 fn spiro2_poly(a: f32, b: f32) -> vec2f {
@@ -48,3 +53,28 @@ fn fresnel_int(s: f32) -> vec2f {
     let seg = spiro2(0.5 * s2, s2, 64);
     return s * cmul(seg, tangent);
 }
+
+struct SpiralSeg {
+    start: vec2f,
+    end: vec2f,
+    a: f32,
+    b: f32,
+    rel_chord: vec2f,
+    start_tan: f32,
+    end_tan: f32,
+    arclen: f32,
+    arc_start: f32,
+}
+
+fn get_spiral_seg_point(seg: SpiralSeg, t: f32) -> vec2f {
+    let s = (t - 1) / 2;
+    let part_seg = spiro2((seg.a + seg.b * s) * t, seg.b * t * t, 16);
+    let theta = (seg.a + 0.5 * s * seg.b) * s;
+    let tangent = vec2f(cos(theta), sin(theta));
+    let part_p = cmul(part_seg, tangent) * t;
+
+    let chord = seg.end - seg.start;
+    let p = seg.start + cmul(chord, cmul(part_p, crecip(seg.rel_chord)));
+    return p;
+}
+

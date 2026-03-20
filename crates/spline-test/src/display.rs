@@ -2,6 +2,7 @@
 use std::{mem::replace, ops::{Deref, DerefMut}};
 
 use clone_all::clone_all;
+use euler_spirals::{solve_euler_spline, stage_euler_spline};
 use leptos::{html::{Canvas, tr}, prelude::*, task::spawn_local};
 use glam::{DVec2, UVec2, dvec2, uvec2};
 use web_sys::{PointerEvent, WheelEvent, js_sys};
@@ -13,6 +14,7 @@ use crate::{gputil::GPUContext, line::DisplayHandle, pointer::GestureRecognizer,
 pub fn GriddedDisplay(
     grid_params: Signal<GridParams>,
     handles: Signal<Vec<DisplayHandle>>,
+    line: Signal<Vec<DVec2>>,
     on_mouse: impl Fn(WorldMouseEvent, &ViewportWindow) + Copy + 'static,
 ) -> impl IntoView {
     let canvas_ref = NodeRef::<Canvas>::new();
@@ -30,6 +32,7 @@ pub fn GriddedDisplay(
     let grid_box = Mailbox::new_scoped(grid_params.into(), need_redraw.clone());
     log::info!("{:?}", handles.get_untracked());
     let handles_box: Mailbox<Vec<DisplayHandle>> = Mailbox::new_scoped(handles.into(), need_redraw.clone());
+    let line_box: Mailbox<Vec<DVec2>> = Mailbox::new_scoped(line.into(), need_redraw.clone());
 
     let on_frame = move || {
         if let Some((Some(renderer), pending)) = renderer_state.try_write_value().as_deref_mut() {
@@ -41,8 +44,14 @@ pub fn GriddedDisplay(
             if let Some(grid) = grid_box.get_new() {
                 renderer.set_grid_params(&grid);
             }
-            if let Some(h) = handles_box.get_new() {
+            if let Some(h) = handles_box.read_new() {
                 renderer.set_handles(&h);
+            }
+            if let Some(points) = line_box.read_new() {
+                let (tangents, fits) = solve_euler_spline(&points);
+                let segments = stage_euler_spline(&points, &tangents, &fits);
+                log::info!("solved splines:\n{:?}\n{:?}\n{:?}", points.deref(), &tangents, &fits);
+                renderer.set_splines(&segments);
             }
 
             let res = renderer.render();

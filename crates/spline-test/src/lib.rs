@@ -41,10 +41,10 @@ fn App() -> impl IntoView {
         background_color: RGBA16f::rgba(0.0, 0.0, 0.0, 0.0),
     });
 
-    let init_line: Vec<DVec2> = (-10..10).map(|x: i32| {ivec2(x, x).as_dvec2()}).collect();
+    let init_line: Vec<DVec2> = (-5..5).map(|x: i32| {ivec2(x, x).as_dvec2()}).collect();
     let true_line = ArcRwSignal::new(init_line);
 
-    let edit_state = StoredValue::new(LineEditState::new(true_line));
+    let edit_state = StoredValue::new(LineEditState::new(true_line.clone()));
     let on_mouse = move |ev:WorldMouseEvent, view: &ViewportWindow| {
         if let Some(ref mut st) = edit_state.try_write_value() {
             st.handle_mouse(&ev, view);
@@ -54,11 +54,13 @@ fn App() -> impl IntoView {
     };
 
     let handle_sig = edit_state.read_value().handles.clone();
+    let held_line = edit_state.read_value().held_line.clone();
 
     view!{
         <GriddedDisplay
             grid_params=grid_params.into()
             handles=handle_sig.into()
+            line=held_line.into()
             on_mouse=on_mouse
         />
     }

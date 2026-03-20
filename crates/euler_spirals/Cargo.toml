@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 glam.workspace=true
+bytemuck.workspace=true
 
