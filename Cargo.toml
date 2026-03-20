@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/euler_spirals",
+    "crates/clothoid",
     "crates/spline-test",
 ]
 

@@ -8,7 +8,7 @@ crate-type = ["cdylib", "rlib"]
 
 
 [dependencies]
-euler_spirals.path = "../euler_spirals"
+clothoid.path = "../clothoid"
 
 bytemuck.workspace = true
 glam.workspace = true

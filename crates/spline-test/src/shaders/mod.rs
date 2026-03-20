@@ -1,6 +1,6 @@
 pub const INCLUDES: &[(&str, &str)] = &[
     ("global.wgsl", include_str!("global.wgsl")),
-    ("spirals.wgsl", euler_spirals::SHADER_INCLUDE),
+    ("spirals.wgsl", clothoid::SHADER_INCLUDE),
 ];
 
 pub const GRID: &str = include_str!("grid.wgsl");

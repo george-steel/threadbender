@@ -2,7 +2,7 @@
 use std::{mem::replace, ops::{Deref, DerefMut}};
 
 use clone_all::clone_all;
-use euler_spirals::{solve_euler_spline, stage_euler_spline};
+use clothoid::{solve_euler_spline, stage_euler_spline};
 use leptos::{html::{Canvas, tr}, prelude::*, task::spawn_local};
 use glam::{DVec2, UVec2, dvec2, uvec2};
 use web_sys::{PointerEvent, WheelEvent, js_sys};

@@ -506,6 +506,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f41849eba0194c121ff31ccbfcc0b0fc965a3ea9f5ef23756af72a17938bc57"
 
 [[package]]
+name = "clothoid"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "glam",
+]
+
+[[package]]
 name = "codee"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -959,14 +967,6 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "euler_spirals"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "glam",
 ]
 
 [[package]]
@@ -3455,9 +3455,9 @@ version = "0.0.0"
 dependencies = [
  "bytemuck",
  "clone_all",
+ "clothoid",
  "console_error_panic_hook",
  "console_log",
- "euler_spirals",
  "getrandom 0.4.1",
  "glam",
  "half",

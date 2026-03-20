@@ -211,7 +211,7 @@ pub fn solve_euler_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>){
 // Solved Euler spiral spline using f32 values for GPU
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C, align(8))]
-pub struct SpiralSegFloat {
+pub struct ClothoidSegParams {
     pub start: Vec2,
     pub end: Vec2,
     pub a: f32,
@@ -223,13 +223,13 @@ pub struct SpiralSegFloat {
     pub arc_start: f32,
 }
 
-pub fn stage_euler_spline(points: &[DVec2], tangents: &[f64], fits: &[FitEulerResult]) -> Vec<SpiralSegFloat> {
+pub fn stage_euler_spline(points: &[DVec2], tangents: &[f64], fits: &[FitEulerResult]) -> Vec<ClothoidSegParams> {
     let n = points.len();
     let mut out = Vec::new();
     let mut start = 0.0;
     for i in 0..(n-1) {
         let arclen = fits[i].rel_chord.length_recip() * (points[i+1] - points[i]).length();
-        out.push(SpiralSegFloat {
+        out.push(ClothoidSegParams {
             start: points[i].as_vec2(),
             end: points[i+1].as_vec2(),
             a: fits[i].a as f32,
