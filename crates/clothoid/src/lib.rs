@@ -77,8 +77,8 @@ fn fit_euler_relative(th0: f64, th1: f64) -> (DVec2, DVec2, f64, f64) {
     let mut err_old = th1 + th0;
     let mut b_old = 0.0;
     
-    let aa = a / TAU;
-    let mut b = 6.0 * (1.0 - aa * aa * aa) * err_old;
+    let aa = 1.0 - a / TAU;
+    let mut b = 6.0 * (aa * aa * aa) * err_old;
     let mut chord = DVec2::ZERO;
 
     for i in 0..10 {
@@ -89,6 +89,9 @@ fn fit_euler_relative(th0: f64, th1: f64) -> (DVec2, DVec2, f64, f64) {
             panic!("got error {} on run {} with chord {} and b {} previously {}", err, i, chord, b, b_old);
         }
         let new_b =  b - (b - b_old) * err / (err - err_old);
+        if i == 9 {
+            panic!("got last step with error {} (prev {}) for angles {} {}", err, err_old, th0, th1);
+        }
         err_old = err;
         b_old = b;
         b = new_b;
@@ -98,7 +101,7 @@ fn fit_euler_relative(th0: f64, th1: f64) -> (DVec2, DVec2, f64, f64) {
 }
 
 fn mod_tau(x: f64) -> f64 {
-    TAU * ((x / TAU - 0.5).fract() + 0.5)
+    (x + PI).rem_euclid(TAU) - PI
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -169,61 +172,102 @@ pub fn solve_tridiag(m: &[[f64; 3]], r: &[f64]) -> Vec<f64> {
     u
 }
 
+fn refine_euler(points: &[DVec2], tangents: &[f64]) -> (Vec<FitEulerResult>, Vec<f64>, Option<Vec<f64>>) {
+    let n = points.len();
+    let mut fits = Vec::with_capacity(n-1);
+    for i in 0..(n-1) {
+        fits.push(fit_euler_abs_deriv(points[i], points[i+1], tangents[i], tangents[i+1]));
+    }
+
+    let mut jac = Vec::with_capacity(n);
+    let mut errs = Vec::with_capacity(n);
+
+    // boundary condition: end segment is circular arc
+    //errs.push(fits[0].jolt);
+    //jac.push([0.0, fits[0].jolt_d0, fits[0].jolt_d1]);
+
+    // straight boundary
+    errs.push(fits[0].curv.x);
+    jac.push([0.0, fits[0].curv_d0.x, fits[0].curv_d1.x]);
+
+    for i in 1..(n-1) {
+        let j = i-1;
+        errs.push(fits[i].curv.x - fits[j].curv.y);
+        jac.push([-fits[j].curv_d0.y, fits[i].curv_d0.x - fits[j].curv_d1.y, fits[i].curv_d1.x]);
+    }
+
+    //errs.push(fits[n-2].jolt);
+    //jac.push([fits[n-2].jolt_d0, fits[n-2].jolt_d1, 0.0]);
+    errs.push(-fits[n-2].curv.y);
+    jac.push([-fits[n-2].curv_d0.y, -fits[n-2].curv_d1.y, 0.0]);
+    
+    let maxerr = errs.iter().copied().map(f64::abs).reduce(f64::max).unwrap_or(0.);
+    if maxerr < 1e-3 {
+        return(fits, errs, None);
+    }
+
+    let deltas = solve_tridiag(&jac, &errs);
+    let mut new_tans = Vec::with_capacity(n);
+    for i in 0..n {
+        new_tans.push(tangents[i] - deltas[i]);
+    }
+    (fits, errs, Some(new_tans))
+}
+
+fn circle_tangent(a: DVec2, b: DVec2, c: DVec2) -> DVec2 {
+    const CONJ: DVec2 = dvec2(1.0, -1.0);
+
+    let ab = (b - a).normalize();
+    let bc = (c - b).normalize();
+    let ac = (c - a).normalize();
+
+    bc.rotate(ab.rotate(ac * CONJ))
+}
+
 pub fn solve_euler_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>){
+    const MAX_ITER: u32 = 12;
     let n = points.len();
 
     let mut tangents = vec![0.0; n];
     tangents[0] = (points[1] - points[0]).to_angle();
     tangents[n-1] = (points[n-1] - points[n-2]).to_angle();
     for i in 1..(n-1) {
-        tangents[i] = (points[i+1] - points[i-1]).to_angle();
+        tangents[i] = circle_tangent(points[i-1], points[i], points[i+1]).to_angle();
     }
 
-    let mut fits = Vec::new();
-    for i in 0..(n-1) {
-        fits.push(fit_euler_abs_deriv(points[i], points[i+1], tangents[i], tangents[i+1]));
+    let mut old_errs = Vec::new();
+
+    for pass in 0..=MAX_ITER {
+        let (fits, errs, next) = refine_euler(&points, &tangents);
+
+        let new_tans = match next {
+            Some(new_tans) => {
+                if pass == MAX_ITER {
+                    return (tangents, fits);
+                } else {
+                    new_tans
+                }
+            },
+            None => {
+                return (tangents, fits);
+            },
+        };
+
+        if pass == 0 {
+            tangents = new_tans;
+        } else {
+            for i in 0..n {
+                if errs[i] < old_errs[i] {
+                    tangents[i] = new_tans[i]
+                } else {
+                    tangents[i] = tangents[i].midpoint(new_tans[i]);
+                }
+            }
+        }
+        old_errs = errs;
+
     }
-
-    for pass in 0..10 {
-        let mut jac = Vec::new();
-        let mut errs = Vec::new();
-
-        // boundary condition: end segment is circular arc
-        //errs.push(fits[0].jolt);
-        //jac.push([0.0, fits[0].jolt_d0, fits[0].jolt_d1]);
-
-        // straight boundary
-        errs.push(fits[0].curv.x);
-        jac.push([0.0, fits[0].curv_d0.x, fits[0].curv_d1.x]);
-
-        for i in 1..(n-1) {
-            let j = i-1;
-            errs.push(fits[i].curv.x - fits[j].curv.y);
-            jac.push([-fits[j].curv_d0.y, fits[i].curv_d0.x - fits[j].curv_d1.y, fits[i].curv_d1.x]);
-        }
-
-        //errs.push(fits[n-2].jolt);
-        //jac.push([fits[n-2].jolt_d0, fits[n-2].jolt_d1, 0.0]);
-        errs.push(-fits[n-2].curv.y);
-        jac.push([-fits[n-2].curv_d0.y, -fits[n-2].curv_d1.y, 0.0]);
-        
-        let maxerr = errs.iter().copied().map(f64::abs).reduce(f64::max).unwrap_or(0.);
-        if maxerr < 1e-3 {
-            break;
-        }
-
-        let deltas = solve_tridiag(&jac, &errs);
-
-        for i in 0..n {
-            tangents[i] -= deltas[i]
-        }
-        fits.clear();
-
-        for i in 0..(n-1) {
-            fits.push(fit_euler_abs_deriv(points[i], points[i+1], tangents[i], tangents[i+1]));
-        }
-    }
-    (tangents, fits)
+    unreachable!()
 }
 
 // Solved Euler spiral spline using f32 values for GPU
@@ -267,8 +311,13 @@ pub fn stage_euler_spline(points: &[DVec2], tangents: &[f64], fits: &[FitEulerRe
 mod tests {
     use super::*;
 
-    fn fresnel_a(s: f64) -> DVec2 {
-        s * spiro2(0.0, 8.0*s*s)
+    #[test]
+    fn test_mod_tau() {
+        for i in (-100)..100 {
+            let t = 0.1 * (i as f64);
+            let tt = mod_tau(t);
+            assert!(tt.abs() <= PI, "t={}: got {}", t, tt);
+        }
     }
 
     #[test]
