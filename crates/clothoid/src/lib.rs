@@ -1,6 +1,9 @@
 use glam::{DVec2, Mat2, Vec2, dvec2};
 use std::f64::consts::{PI, TAU};
 
+mod fresnel_int;
+pub use fresnel_int::*;
+
 pub const SHADER_INCLUDE: &str = include_str!("spirals.wgsl");
 
 fn spiro2_poly(a: f64, b: f64) -> DVec2 {
@@ -25,8 +28,8 @@ fn spiro2_poly(a: f64, b: f64) -> DVec2 {
     p
 }
 
-pub fn spiro2(a: f64, b: f64) -> DVec2 {
-    const N: i32 = 32;
+fn spiro2_subdiv(a: f64, b: f64) -> DVec2 {
+    const N: i32 = 64;
     let ds = 1.0 / (N as f64);
 
     let mut p = DVec2::ZERO;
@@ -41,13 +44,28 @@ pub fn spiro2(a: f64, b: f64) -> DVec2 {
     ds * p
 }
 
-
-
-pub fn fresnel(s: f64) -> DVec2 {
+fn fresnel_old(s: f64) -> DVec2 {
     let s2 = s * s;
-    let theta = s2 / 8.0;
+    let theta = s2 / 4.0;
     let tangent = DVec2::from_angle(theta);
-    s * spiro2(s2 / 2.0, s2).rotate(tangent)
+    s * spiro2(s2, 2.0 * s2).rotate(tangent)
+}
+
+pub fn spiro2(a: f64, b: f64) -> DVec2 {
+    if b.abs() < 5e-8 {
+        if a == 0.0 {return DVec2::X;}
+        return dvec2((0.5 * a).sin() / (0.5 * a), 0.0);
+    }
+    let ab = b.abs();
+    let sb = (ab * PI).sqrt();
+    let t0 = (a - 0.5 * ab) / sb;
+    let t1 = (a + 0.5 * ab) / sb;
+    let p0 = norm_fresnel(t0);
+    let p1 = norm_fresnel(t1);
+    let chord = (p1 - p0) / (t1 - t0);
+    let theta = 0.5 * a * a / ab;
+    let m = DVec2::from_angle(-theta);
+    chord.rotate(m) * dvec2(1.0, b.signum())
 }
 
 // Raph Levien, From Spiral to Spline, fig 8.3.
@@ -250,7 +268,7 @@ mod tests {
     use super::*;
 
     fn fresnel_a(s: f64) -> DVec2 {
-        s * spiro2(0.0, 4.0*s*s)
+        s * spiro2(0.0, 8.0*s*s)
     }
 
     #[test]
@@ -268,15 +286,32 @@ mod tests {
     }
 
     #[test]
+    fn test_spiros_match() {
+        for i in (-50)..50 {
+            for j in (-50)..50 {
+                let a = 0.1 * (i as f64);
+                let b = 0.1 * (j as f64);
+
+                let from_sub = spiro2_subdiv(a, b);
+                let from_spiro = spiro2(a, b);
+                let err = from_sub.distance(from_spiro);
+
+                assert!(err < 0.01, "a={} b={}: got {} from euler integration, {} directly", a, b, from_sub, from_spiro);
+            }
+        }
+    }
+
+    #[test]
     fn test_fresnels() {
         for i in 1..100 {
             let t: f64 = 0.1 * (i as f64);
 
-            let from_a = fresnel_a(t);
-            let from_b = fresnel(t);
+            let from_a = fresnel_old(t);
+            let from_b = simple_fresnel(t);
             let err = (from_a.length() - from_b.length()).abs();
 
-            assert!(err < 0.0001, "t={}: got {} and {}", t, from_a, from_b);
+            println!("t={}: {} and {}", t, from_a, from_b);
+            assert!(err < 0.0001, "t={}: got {} from spiro and {} directly", t, from_a, from_b);
         }
     }
 

@@ -32,7 +32,7 @@ fn spiro2_poly(a: f32, b: f32) -> vec2f {
     return p;
 }
 
-fn spiro2(a: f32, b: f32, n_subdiv: u32) -> vec2f {
+fn spiro2_subdiv(a: f32, b: f32, n_subdiv: u32) -> vec2f {
     var p = vec2f(0);
     let ds = 1 / f32(n_subdiv);
     for (var i = 0u; i < n_subdiv; i++) {
@@ -46,12 +46,101 @@ fn spiro2(a: f32, b: f32, n_subdiv: u32) -> vec2f {
     return p;
 }
 
-fn fresnel_int(s: f32) -> vec2f {
-    let s2 = s * s;
-    let theta = 0.125 * s2;
-    let tangent = vec2f(cos(theta), sin(theta));
-    let seg = spiro2(0.5 * s2, s2, 64);
-    return s * cmul(seg, tangent);
+fn s_poly(t: f32) -> f32 {
+    var p = 1.647629463788700E-009;
+    p = p * t - 1.522754752581096E-007;
+    p = p * t + 8.424748808502400E-006;
+    p = p * t - 3.120693124703272E-004;
+    p = p * t + 7.244727626597022E-003;
+    p = p * t - 9.228055941124598E-002;
+    p = p * t + 5.235987735681432E-001;
+    return p;
+}
+
+fn c_poly(t: f32) -> f32 {
+    var p = 1.416802502367354E-008;
+    p = p * t - 1.157231412229871E-006;
+    p = p * t + 5.387223446683264E-005;
+    p = p * t - 1.604381798862293E-003;
+    p = p * t + 2.818489036795073E-002;
+    p = p * t - 2.467398198317899E-001;
+    p = p * t + 9.999999760004487E-001;
+    return p;
+}
+
+
+fn f_poly(t: f32) -> f32 {
+    var p = -1.903009855649792E+012;
+    p = p * t + 1.355942388050252E+011;
+    p = p * t - 4.158143148511033E+009;
+    p = p * t + 7.343848463587323E+007;
+    p = p * t - 8.732356681548485E+005;
+    p = p * t + 8.560515466275470E+003;
+    p = p * t - 1.032877601091159E+002;
+    p = p * t + 2.999401847870011E+000;
+    return p;
+}
+
+fn g_poly(t: f32) -> f32 {
+    var p = -1.860843997624650E+011;
+    p = p * t + 1.278350673393208E+010;
+    p = p * t - 3.779387713202229E+008;
+    p = p * t + 6.492611570598858E+006;
+    p = p * t - 7.787789623358162E+004;
+    p = p * t + 8.602931494734327E+002;
+    p = p * t - 1.493439396592284E+001;
+    p = p * t + 9.999841934744914E-001;
+    return p;
+}
+
+// integral of E^i(PI/2 * t^2)
+fn norm_fresnel(x: f32) -> vec2f {
+    let x2 = x * x;
+    if x2 < 2.5625 {
+        let x4 = x2 * x2;
+        let c = x * c_poly(x4);
+        let s = x * x2 * s_poly(x4);
+        return vec2f(c, s);
+    } else if x > 36974.0 {
+        return sign(x) * vec2f(0.5, 0.5);
+    } else {
+        let u = 1.0 / (PI * x2);
+        let u2 = u * u;
+        let f = 1.0 - u2 * f_poly(u2);
+        let g = u * g_poly(u2);
+
+        let theta = 0.5 * PI * x2;
+        let c = cos(theta);
+        let s = sin(theta);
+        let t = PI * abs(x);
+        let cc = 0.5 + (f * s - g * c)/t;
+        let ss = 0.5 - (f * c + g * s)/t;
+        return sign(x) * vec2f(cc, ss);
+    }
+}
+
+fn fresnel_int(x: f32) -> vec2f {
+    let norm = sqrt(PI / 2.0);
+    return norm_fresnel(x / norm) * norm;
+}
+
+fn spiro2(a: f32, b: f32) -> vec2f {
+    let ab = abs(b);
+    if ab < 5e-8 {
+        if a == 0.0 {
+            return vec2f(1, 0);
+        }
+        return vec2f(sin(0.5 * a) / (0.5 * a), 0.0);
+    }
+    let sb = sqrt(ab * PI);
+    let t0 = (a - 0.5 * ab) / sb;
+    let t1 = (a + 0.5 * ab) / sb;
+    let p0 = norm_fresnel(t0);
+    let p1 = norm_fresnel(t1);
+    let chord = (p1 - p0) / (t1 - t0);
+    let theta = 0.5 * a * a / ab;
+    let m = vec2f(cos(theta), -sin(theta));
+    return cmul(chord, m) * vec2f(1.0, sign(b));
 }
 
 struct SpiralSeg {
@@ -68,7 +157,7 @@ struct SpiralSeg {
 
 fn get_spiral_seg_point(seg: SpiralSeg, t: f32) -> vec2f {
     let s = (t - 1) / 2;
-    let part_seg = spiro2((seg.a + seg.b * s) * t, seg.b * t * t, 16);
+    let part_seg = spiro2((seg.a + seg.b * s) * t, seg.b * t * t);
     let theta = (seg.a + 0.5 * s * seg.b) * s;
     let tangent = vec2f(cos(theta), sin(theta));
     let part_p = cmul(part_seg, tangent) * t;
