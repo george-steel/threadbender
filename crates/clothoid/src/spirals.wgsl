@@ -72,16 +72,14 @@ fn norm_fresnel(x: f32) -> vec2f {
     } else {
         let u = 1.0 / (PI * x2);
         let u2 = u * u;
-        let f = 1.0 - u2 * f_poly(u2);
         let g = u * g_poly(u2);
+        let f = 1.0 - u2 * f_poly(u2);
+        let gf = vec2f(g, f);
 
         let theta = 0.5 * PI * x2;
-        let c = cos(theta);
-        let s = sin(theta);
+        let cs = vec2f(cos(theta), sin(theta));
         let t = PI * abs(x);
-        let cc = 0.5 + (f * s - g * c)/t;
-        let ss = 0.5 - (f * c + g * s)/t;
-        return sign(x) * vec2f(cc, ss);
+        return sign(x) * (0.5 - cmul(gf, cs)/t);
     }
 }
 
@@ -91,22 +89,48 @@ fn fresnel_int(x: f32) -> vec2f {
 }
 
 fn spiro2(a: f32, b: f32) -> vec2f {
+    let aa = abs(a);
     let ab = abs(b);
     if ab < 5e-8 {
+        // special cases to avoid division by zero
         if a == 0.0 {
             return vec2f(1, 0);
         }
         return vec2f(sin(0.5 * a) / (0.5 * a), 0.0);
     }
     let sb = sqrt(ab * PI);
-    let t0 = (a - 0.5 * ab) / sb;
-    let t1 = (a + 0.5 * ab) / sb;
-    let p0 = norm_fresnel(t0);
-    let p1 = norm_fresnel(t1);
-    let chord = (p1 - p0) / (t1 - t0);
-    let theta = 0.5 * a * a / ab;
-    let m = vec2f(cos(theta), -sin(theta));
-    return cmul(chord, m) * vec2f(1.0, sign(b));
+    let tmin = (aa - 0.5 * ab) / sb;
+    if tmin > 2 {
+        // with both ends of the fresnel integral falling into the same asymptotic case,
+        // inline and rearrange calculations algebraically to avoid floating-point error on small values of b.
+        let t2m = a * a / ab  + ab/4;
+
+        let u0 = 1 / (t2m - aa);
+        let u1 = 1 / (t2m + aa);
+        let u02 = u0 * u0;
+        let u12 = u1 * u1;
+
+        let gf0 = vec2f(u0 * g_poly(u02), 1 - u02 * f_poly(u02));
+        let gf1 = vec2f(u1 * g_poly(u12), 1 - u12 * f_poly(u12));
+
+        let th0 = ab / 8 - 0.5 * aa;
+        let th1 = ab / 8 + 0.5 * aa;
+        let dcs0 = vec2f(cos(th0), sin(th0));
+        let dcs1 = vec2f(cos(th1), sin(th1));
+        let p0 = cmul(gf0, dcs0) / (aa - ab/2);
+        let p1 = cmul(gf1, dcs1) / (aa + ab / 2);
+        return (p0 - p1) * vec2f(1.0, sign(b));
+    } else {
+        // call fresnel integral normally
+        let t0 = (a - 0.5 * ab) / sb;
+        let t1 = (a + 0.5 * ab) / sb;
+        let p0 = norm_fresnel(t0);
+        let p1 = norm_fresnel(t1);
+        let chord = (p1 - p0) / (t1 - t0);
+        let theta = 0.5 * a * a / ab;
+        let m = vec2f(cos(theta), -sin(theta));
+        return cmul(chord, m) * vec2f(1.0, sign(b));
+    }
 }
 
 struct SpiralSeg {

@@ -29,7 +29,7 @@ fn spiro2_poly(a: f64, b: f64) -> DVec2 {
 }
 
 fn spiro2_subdiv(a: f64, b: f64) -> DVec2 {
-    const N: i32 = 64;
+    const N: i32 = 256;
     let ds = 1.0 / (N as f64);
 
     let mut p = DVec2::ZERO;
@@ -48,24 +48,7 @@ fn fresnel_old(s: f64) -> DVec2 {
     let s2 = s * s;
     let theta = s2 / 4.0;
     let tangent = DVec2::from_angle(theta);
-    s * spiro2(s2, 2.0 * s2).rotate(tangent)
-}
-
-pub fn spiro2(a: f64, b: f64) -> DVec2 {
-    if b.abs() < 5e-8 {
-        if a == 0.0 {return DVec2::X;}
-        return dvec2((0.5 * a).sin() / (0.5 * a), 0.0);
-    }
-    let ab = b.abs();
-    let sb = (ab * PI).sqrt();
-    let t0 = (a - 0.5 * ab) / sb;
-    let t1 = (a + 0.5 * ab) / sb;
-    let p0 = norm_fresnel(t0);
-    let p1 = norm_fresnel(t1);
-    let chord = (p1 - p0) / (t1 - t0);
-    let theta = 0.5 * a * a / ab;
-    let m = DVec2::from_angle(-theta);
-    chord.rotate(m) * dvec2(1.0, b.signum())
+    s * spiro2_subdiv(s2, 2.0 * s2).rotate(tangent)
 }
 
 // Raph Levien, From Spiral to Spline, fig 8.3.
@@ -89,9 +72,9 @@ fn fit_euler_relative(th0: f64, th1: f64) -> (DVec2, DVec2, f64, f64) {
             panic!("got error {} on run {} with chord {} and b {} previously {}", err, i, chord, b, b_old);
         }
         let new_b =  b - (b - b_old) * err / (err - err_old);
-        if i == 9 {
-            panic!("got last step with error {} (prev {}) for angles {} {}", err, err_old, th0, th1);
-        }
+        //if i == 9 {
+        //    panic!("got last step with error {} (prev {}) for angles {} {}", err, err_old, th0, th1);
+        //}
         err_old = err;
         b_old = b;
         b = new_b;
@@ -183,12 +166,12 @@ fn refine_euler(points: &[DVec2], tangents: &[f64]) -> (Vec<FitEulerResult>, Vec
     let mut errs = Vec::with_capacity(n);
 
     // boundary condition: end segment is circular arc
-    //errs.push(fits[0].jolt);
-    //jac.push([0.0, fits[0].jolt_d0, fits[0].jolt_d1]);
+    errs.push(fits[0].jolt);
+    jac.push([0.0, fits[0].jolt_d0, fits[0].jolt_d1]);
 
     // straight boundary
-    errs.push(fits[0].curv.x);
-    jac.push([0.0, fits[0].curv_d0.x, fits[0].curv_d1.x]);
+    //errs.push(fits[0].curv.x);
+    //jac.push([0.0, fits[0].curv_d0.x, fits[0].curv_d1.x]);
 
     for i in 1..(n-1) {
         let j = i-1;
@@ -196,10 +179,10 @@ fn refine_euler(points: &[DVec2], tangents: &[f64]) -> (Vec<FitEulerResult>, Vec
         jac.push([-fits[j].curv_d0.y, fits[i].curv_d0.x - fits[j].curv_d1.y, fits[i].curv_d1.x]);
     }
 
-    //errs.push(fits[n-2].jolt);
-    //jac.push([fits[n-2].jolt_d0, fits[n-2].jolt_d1, 0.0]);
-    errs.push(-fits[n-2].curv.y);
-    jac.push([-fits[n-2].curv_d0.y, -fits[n-2].curv_d1.y, 0.0]);
+    errs.push(fits[n-2].jolt);
+    jac.push([fits[n-2].jolt_d0, fits[n-2].jolt_d1, 0.0]);
+    //errs.push(-fits[n-2].curv.y);
+    //jac.push([-fits[n-2].curv_d0.y, -fits[n-2].curv_d1.y, 0.0]);
     
     let maxerr = errs.iter().copied().map(f64::abs).reduce(f64::max).unwrap_or(0.);
     if maxerr < 1e-3 {
@@ -214,9 +197,9 @@ fn refine_euler(points: &[DVec2], tangents: &[f64]) -> (Vec<FitEulerResult>, Vec
     (fits, errs, Some(new_tans))
 }
 
-fn circle_tangent(a: DVec2, b: DVec2, c: DVec2) -> DVec2 {
-    const CONJ: DVec2 = dvec2(1.0, -1.0);
+const CONJ: DVec2 = dvec2(1.0, -1.0);
 
+fn mid_circle_tangent(a: DVec2, b: DVec2, c: DVec2) -> DVec2 {
     let ab = (b - a).normalize();
     let bc = (c - b).normalize();
     let ac = (c - a).normalize();
@@ -224,15 +207,23 @@ fn circle_tangent(a: DVec2, b: DVec2, c: DVec2) -> DVec2 {
     bc.rotate(ab.rotate(ac * CONJ))
 }
 
+fn start_circle_tangent(a: DVec2, b: DVec2, c: DVec2) -> DVec2 {
+    let ab = (b - a).normalize();
+    let cb = (b - c).normalize();
+    let ca = (a - c).normalize();
+
+    ab.rotate(ca.rotate(cb * CONJ))
+}
+
 pub fn solve_euler_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>){
     const MAX_ITER: u32 = 12;
     let n = points.len();
 
     let mut tangents = vec![0.0; n];
-    tangents[0] = (points[1] - points[0]).to_angle();
-    tangents[n-1] = (points[n-1] - points[n-2]).to_angle();
+    tangents[0] = start_circle_tangent(points[0],points[1], points[2]).to_angle();
+    tangents[n-1] = (-start_circle_tangent(points[n-1],points[n-2], points[n-3])).to_angle();
     for i in 1..(n-1) {
-        tangents[i] = circle_tangent(points[i-1], points[i], points[i+1]).to_angle();
+        tangents[i] = mid_circle_tangent(points[i-1], points[i], points[i+1]).to_angle();
     }
 
     let mut old_errs = Vec::new();
@@ -345,7 +336,7 @@ mod tests {
                 let from_spiro = spiro2(a, b);
                 let err = from_sub.distance(from_spiro);
 
-                assert!(err < 0.01, "a={} b={}: got {} from euler integration, {} directly", a, b, from_sub, from_spiro);
+                assert!(err < 0.001, "a={} b={}: got {} from euler integration, {} directly", a, b, from_sub, from_spiro);
             }
         }
     }
