@@ -1,5 +1,5 @@
 use glam::{DVec2, Mat2, Vec2, dvec2};
-use std::f64::consts::{PI, TAU};
+use std::{f64::consts::{PI, TAU}, mem::replace};
 
 mod fresnel_int;
 pub use fresnel_int::*;
@@ -216,7 +216,7 @@ fn start_circle_tangent(a: DVec2, b: DVec2, c: DVec2) -> DVec2 {
 }
 
 pub fn solve_euler_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>){
-    const MAX_ITER: u32 = 12;
+    const MAX_ITER: u32 = 20;
     let n = points.len();
 
     let mut tangents = vec![0.0; n];
@@ -226,7 +226,8 @@ pub fn solve_euler_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>){
         tangents[i] = mid_circle_tangent(points[i-1], points[i], points[i+1]).to_angle();
     }
 
-    let mut old_errs = Vec::new();
+    let mut old_errsum = 0.0;
+    let mut old_tans = Vec::new();
 
     for pass in 0..=MAX_ITER {
         let (fits, errs, next) = refine_euler(&points, &tangents);
@@ -245,17 +246,19 @@ pub fn solve_euler_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>){
         };
 
         if pass == 0 {
-            tangents = new_tans;
+            old_errsum = errs.iter().copied().map(|x|{x*x}).sum();
+            old_tans = replace(&mut tangents, new_tans);
         } else {
-            for i in 0..n {
-                if errs[i] < old_errs[i] {
-                    tangents[i] = new_tans[i]
-                } else {
-                    tangents[i] = tangents[i].midpoint(new_tans[i]);
+            let errsum = errs.iter().copied().map(|x|{x*x}).sum();
+            if errsum < old_errsum {
+                old_tans = replace(&mut tangents, new_tans);
+            } else {
+                for i in 0..n {
+                    tangents[i] = tangents[i].midpoint(old_tans[i]);
                 }
             }
+            old_errsum = errsum;
         }
-        old_errs = errs;
 
     }
     unreachable!()
