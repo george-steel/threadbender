@@ -76,11 +76,17 @@ pub fn norm_fresnel(x: f64) -> DVec2 {
     }
 }
 
+// integral of E^I(t^2)
 pub fn simple_fresnel(x: f64) -> DVec2 {
     let norm = (PI / 2.0).sqrt();
     norm_fresnel(x / norm) * norm
 }
 
+// Raph Levien's Spiro integral limited to two parameters.
+// Integral of E^i(a*t + b*t^2/2) from -0.5 to 0.5.
+// Result is either sinc (where b=0)) or a difference of Fresnel integrals.
+// This includes an algebraically-equivalent case for low values of b
+// which avoids the floating-point error inherent in just calling norm_fresnel twice.
 pub fn spiro2(a: f64, b: f64) -> DVec2 {
     let aa = a.abs();
     let ab = b.abs();
@@ -111,6 +117,7 @@ pub fn spiro2(a: f64, b: f64) -> DVec2 {
         let p1 = gf1.rotate(dcs1) / (aa + ab / 2.0);
         return (p0 - p1) * dvec2(1.0, b.signum());
     } else {
+        // We are near the inflection point, so call both endpoints and take the difference.
         let t0 = (a - 0.5 * ab) / sb;
         let t1 = (a + 0.5 * ab) / sb;
         let p0 = norm_fresnel(t0);

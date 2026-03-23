@@ -1,11 +1,11 @@
 use glam::{DVec2, Mat2, Vec2, dvec2};
 use std::{f64::consts::{PI, TAU}, mem::replace};
 
-pub use crate::fresnel_int::*;
+pub use crate::fresnel::*;
 
 // Raph Levien, From Spiral to Spline, fig 8.3.
 // Find (a, b) for spiral segment using endpoint angles CCW from chord.
-// th0 is inverted from source (which had it CW)
+// th0 is inverted from Levien's version (which had it CW)
 fn fit_euler_relative(th0: f64, th1: f64) -> (DVec2, DVec2, f64, f64) {
     let a = th1 - th0;
 
@@ -53,6 +53,7 @@ pub struct FitEulerResult {
     pub jolt_d1: f64,
 }
 
+// Fits an Euler spiral segment based on endpoints and endpoint-space tangents CCW from +X 
 fn fit_euler_abs_deriv(p0: DVec2, p1: DVec2, th0: f64, th1: f64) -> FitEulerResult {
     const EPSILON: f64 = 1e-6;
 
@@ -107,6 +108,7 @@ pub fn solve_tridiag(m: &[[f64; 3]], r: &[f64]) -> Vec<f64> {
     u
 }
 
+// Measures error and calculates new tangents using a single round of Newton iteration
 fn refine_euler(points: &[DVec2], tangents: &[f64]) -> (Vec<FitEulerResult>, Vec<f64>, Option<Vec<f64>>) {
     let n = points.len();
     let mut fits = Vec::with_capacity(n-1);
@@ -121,10 +123,6 @@ fn refine_euler(points: &[DVec2], tangents: &[f64]) -> (Vec<FitEulerResult>, Vec
     errs.push(fits[0].jolt);
     jac.push([0.0, fits[0].jolt_d0, fits[0].jolt_d1]);
 
-    // straight boundary
-    //errs.push(fits[0].curv.x);
-    //jac.push([0.0, fits[0].curv_d0.x, fits[0].curv_d1.x]);
-
     for i in 1..(n-1) {
         let j = i-1;
         errs.push(fits[i].curv.x - fits[j].curv.y);
@@ -133,8 +131,6 @@ fn refine_euler(points: &[DVec2], tangents: &[f64]) -> (Vec<FitEulerResult>, Vec
 
     errs.push(fits[n-2].jolt);
     jac.push([fits[n-2].jolt_d0, fits[n-2].jolt_d1, 0.0]);
-    //errs.push(-fits[n-2].curv.y);
-    //jac.push([-fits[n-2].curv_d0.y, -fits[n-2].curv_d1.y, 0.0]);
     
     let maxerr = errs.iter().copied().map(f64::abs).reduce(f64::max).unwrap_or(0.);
     if maxerr < 1e-3 {
@@ -151,11 +147,13 @@ fn refine_euler(points: &[DVec2], tangents: &[f64]) -> (Vec<FitEulerResult>, Vec
 
 const CONJ: DVec2 = dvec2(1.0, -1.0);
 
+// tangent oc circumcircle of a,b,c at b
 fn mid_circle_tangent(a: DVec2, b: DVec2, c: DVec2) -> DVec2 {
     let ab = (b - a).normalize();
     let bc = (c - b).normalize();
     let ac = (c - a).normalize();
 
+    // tangent of circumcircle using alternate segment theorem
     bc.rotate(ab.rotate(ac * CONJ))
 }
 
@@ -167,10 +165,14 @@ fn start_circle_tangent(a: DVec2, b: DVec2, c: DVec2) -> DVec2 {
     ab.rotate(ca.rotate(cb * CONJ))
 }
 
-pub fn solve_euler_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>){
+// Solves parameters for an Euler spiral (clothoid) spline.
+// Returns tangents and fit parameters
+pub fn solve_clothoid_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>){
     const MAX_ITER: u32 = 20;
     let n = points.len();
 
+    // Start with tangents based on circle spline.
+    // This converges better than Catmull-Rom tangents
     let mut tangents = vec![0.0; n];
     tangents[0] = start_circle_tangent(points[0],points[1], points[2]).to_angle();
     tangents[n-1] = (-start_circle_tangent(points[n-1],points[n-2], points[n-3])).to_angle();
@@ -201,10 +203,13 @@ pub fn solve_euler_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>){
             old_errsum = errs.iter().copied().map(|x|{x*x}).sum();
             old_tans = replace(&mut tangents, new_tans);
         } else {
+            // check if the last iteration made total error worse
             let errsum = errs.iter().copied().map(|x|{x*x}).sum();
             if errsum < old_errsum {
+                // if not, update tangents with new ones from this iteration
                 old_tans = replace(&mut tangents, new_tans);
             } else {
+                // if it got worse, abandon this round and backtrack halfway to escape chaos orbit
                 for i in 0..n {
                     tangents[i] = tangents[i].midpoint(old_tans[i]);
                 }
@@ -216,7 +221,7 @@ pub fn solve_euler_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>){
     unreachable!()
 }
 
-// Solved Euler spiral spline using f32 values for GPU
+// Solved Euler spiral segment using f32 values for use in GPU buffers for rendering
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C, align(8))]
 pub struct ClothoidSegParams {
@@ -231,7 +236,8 @@ pub struct ClothoidSegParams {
     pub arc_start: f32,
 }
 
-pub fn stage_euler_spline(points: &[DVec2], tangents: &[f64], fits: &[FitEulerResult]) -> Vec<ClothoidSegParams> {
+// Convert a solution from solve_clothoid_spline to a single ClothoidDegParams buffer.
+pub fn stage_clothoid_spline(points: &[DVec2], tangents: &[f64], fits: &[FitEulerResult]) -> Vec<ClothoidSegParams> {
     let n = points.len();
     let mut out = Vec::new();
     let mut start = 0.0;
