@@ -2,7 +2,7 @@ use core::num;
 use std::num::NonZero;
 
 use bytemuck::bytes_of;
-use clothoid::ClothoidSegParams;
+use clothoid::spline::ClothoidSegParams;
 use glam::{Affine2, UVec2, Vec2};
 use half::f16;
 use image::flat::View;

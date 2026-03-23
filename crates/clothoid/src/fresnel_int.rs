@@ -3,8 +3,6 @@
 use std::f64::consts::PI;
 use glam::{DVec2, dvec2};
 
-use crate::CONJ;
-
 fn s_poly(t: f64) -> f64 {
     let mut p = 1.647629463788700E-009;
     p = p * t - 1.522754752581096E-007;
