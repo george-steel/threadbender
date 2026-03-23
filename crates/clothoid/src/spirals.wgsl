@@ -83,11 +83,12 @@ fn norm_fresnel(x: f32) -> vec2f {
     }
 }
 
-fn fresnel_int(x: f32) -> vec2f {
+fn simple_fresnel(x: f32) -> vec2f {
     let norm = sqrt(PI / 2.0);
     return norm_fresnel(x / norm) * norm;
 }
 
+// Numerically-stable version of two-parameter spiro dunction
 fn spiro2(a: f32, b: f32) -> vec2f {
     let aa = abs(a);
     let ab = abs(b);
@@ -133,7 +134,8 @@ fn spiro2(a: f32, b: f32) -> vec2f {
     }
 }
 
-struct SpiralSeg {
+// same as the rust version
+struct ClothoidSegParams {
     start: vec2f,
     end: vec2f,
     a: f32,
@@ -145,7 +147,8 @@ struct SpiralSeg {
     arc_start: f32,
 }
 
-fn get_spiral_seg_point(seg: SpiralSeg, t: f32) -> vec2f {
+// get a specific point in a clothoid segment
+fn get_cloithoid_seg_point(seg: ClothoidSegParams, t: f32) -> vec2f {
     let s = (t - 1) / 2;
     let part_seg = spiro2((seg.a + seg.b * s) * t, seg.b * t * t);
     let theta = (seg.a + 0.5 * s * seg.b) * s;

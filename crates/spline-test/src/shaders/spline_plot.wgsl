@@ -9,7 +9,7 @@ struct VSOut {
 }
 
 @group(0) @binding(0) var<uniform> view: Viewport;
-@group(1) @binding(0) var<storage, read> spline: array<SpiralSeg>;
+@group(1) @binding(0) var<storage, read> spline: array<ClothoidSegParams>;
 
 @vertex fn spline_plot_vert(@builtin(vertex_index) vert: u32, @builtin(instance_index) inst: u32) -> VSOut {
     let t = f32(vert) / f32(LINES_PER_SEG);

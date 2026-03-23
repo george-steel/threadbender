@@ -50,7 +50,8 @@ fn g_poly(t: f64) -> f64 {
     p
 }
 
-// integral of E^i(PI/2 * t^2)
+// Integral of E^i(PI/2 * t^2) from 0 to x
+// Adapted from Cephes Math Library
 pub fn norm_fresnel(x: f64) -> DVec2 {
     let x2 = x * x;
     if x2 < 2.5625 {
