@@ -80,8 +80,6 @@ pub struct LineEditRenderer {
     spline_buf: Buffer,
     spline_bg: BindGroup,
 
-    spiral_test_pipeline: RenderPipeline,
-
     msaa_tex: Texture,
     msaa_view: TextureView,
     canvas: Surface<'static>,
@@ -323,42 +321,6 @@ impl LineEditRenderer {
             }],
         });
 
-        let spiral_shaders = gpu.process_shader_module("spiral_test.wgsl", shaders::SPIRAL_TEST);
-        let spiral_pipeline_layout = gpu.device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("spiral_pipeline_layout"),
-            bind_group_layouts: &[&view_bg_layout],
-            immediate_size: 0,
-        });
-        let spiral_test_pipeline = gpu.device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("spiral_pipeline"),
-            layout: Some(&spiral_pipeline_layout),
-            vertex: VertexState {
-                module: &spiral_shaders,
-                entry_point: Some("spiral_test_vert"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(FragmentState {
-                module: &spiral_shaders,
-                entry_point: Some("spiral_test_frag"),
-                compilation_options: Default::default(),
-                targets: &[Some(gpu.output_format.into())],
-            }),
-            primitive: PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineStrip,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: MultisampleState {
-                count: 4,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview_mask: None,
-            cache: None,
-        });
-
         let msaa_tex = gpu.device.create_texture(&TextureDescriptor {
             label: Some("msaa_tex"),
             size: extent_2d(size),
@@ -383,7 +345,6 @@ impl LineEditRenderer {
             handle_buf, handle_bg, num_handles: 0,
             spline_pipeline,
             spline_buf, spline_bg, num_splines: 0,
-            spiral_test_pipeline,
             msaa_tex, msaa_view, canvas,
             last_size: size
         }
@@ -474,9 +435,6 @@ impl LineEditRenderer {
                 main_pass.set_bind_group(1, &self.grid_bg, &[]);
                 main_pass.draw(0..(2*num_lines), 0..2);
             }
-
-            main_pass.set_pipeline(&self.spiral_test_pipeline);
-            main_pass.draw(0..1000, 0..2);
 
             if self.num_handles != 0 {
                 let verts = 6 * self.num_handles as u32;
