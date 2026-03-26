@@ -11,7 +11,7 @@ struct VSOut {
 @vertex fn spiral_test_vert(@builtin(vertex_index) vert: u32, @builtin(instance_index) inst: u32) -> VSOut {
     let s = 0.01 * f32(vert) * select(1.0, -1.0, inst == 0);
 
-    let world_pos = 10 * fresnel_int(s);
+    let world_pos = 10 * simple_fresnel(s);
     let clip_pos = view.scales * world_pos + view.trans;
     
     var out: VSOut;

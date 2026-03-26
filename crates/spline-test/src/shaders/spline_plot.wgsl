@@ -14,7 +14,7 @@ struct VSOut {
 @vertex fn spline_plot_vert(@builtin(vertex_index) vert: u32, @builtin(instance_index) inst: u32) -> VSOut {
     let t = f32(vert) / f32(LINES_PER_SEG);
     let seg = spline[inst];
-    let world_pos = get_spiral_seg_point(seg, t);
+    let world_pos = get_clothoid_seg_point(seg, t);
 
     let clip_pos = view.scales * world_pos + view.trans;
     

@@ -1,4 +1,4 @@
-use glam::{DVec2, Mat2, Vec2, dvec2};
+use glam::{DVec2, Vec2, dvec2};
 use std::{f64::consts::{PI, TAU}, mem::replace};
 
 pub use crate::fresnel::*;
@@ -274,16 +274,16 @@ mod tests {
 
     #[test]
     fn test_fit_euler_zero() {
-        let (chord, curv, a, b) = fit_euler_relative(0.0, 0.0);
+        let (_, _, a, b) = fit_euler_relative(0.0, 0.0);
         assert!(a.abs() < 0.0001 && b.abs() < 0.0001, "got a={} and b={}", a, b);
 
         let fit = fit_euler_abs_deriv(dvec2(1.0, 0.0), dvec2(2.0, 0.0), 0.0, 0.0);
         assert!(fit.a.abs() < 0.0001 && fit.b.abs() < 0.0001, "got bad fit {:?}", fit);
 
-        let (chord, curv, a, b) = fit_euler_relative(0.5, -0.5);
+        let (_, _, a, b) = fit_euler_relative(0.5, -0.5);
         assert!(a.is_finite() && b.abs() < 0.0001, "got a={} and b={}", a, b);
 
-        let (chord, curv, a, b) = fit_euler_relative(0.5, 0.5);
+        let (_, _, a, b) = fit_euler_relative(0.5, 0.5);
         assert!(a.abs() < 0.0001 && b.is_finite(), "got a={} and b={}", a, b);
     }
 }

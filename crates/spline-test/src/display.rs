@@ -1,21 +1,25 @@
 
-use std::{mem::replace, ops::{Deref, DerefMut}};
+use std::{mem::replace, ops::{Deref, DerefMut}, sync::Arc};
 
 use clone_all::clone_all;
 use clothoid::spline::{solve_clothoid_spline, stage_clothoid_spline};
-use leptos::{html::{Canvas, tr}, prelude::*, task::spawn_local};
+use leptos::{html::{Canvas, tr}, prelude::*, tachys::view, task::spawn_local};
 use glam::{DVec2, UVec2, dvec2, uvec2};
 use web_sys::{PointerEvent, WheelEvent, js_sys};
 
 use crate::{gputil::GPUContext, line::DisplayHandle, pointer::GestureRecognizer, renderer::{GridParams, LineEditRenderer}, util::{Mailbox, resize::{ResizeObserverHandle, auto_resize_canvas}}, viewport::{ViewportScroller, ViewportWindow, WorldMouseEvent}};
 
+#[derive(Clone)]
+pub struct  SplineEditConnection {
+    pub handles: ArcSignal<Vec<DisplayHandle>>,
+    pub line: ArcSignal<Vec<DVec2>>,
+    pub on_mouse: Arc<dyn Fn(WorldMouseEvent, &ViewportWindow) + Send + Sync>,
+}
 
 #[component]
 pub fn GriddedDisplay(
     grid_params: Signal<GridParams>,
-    handles: Signal<Vec<DisplayHandle>>,
-    line: Signal<Vec<DVec2>>,
-    on_mouse: impl Fn(WorldMouseEvent, &ViewportWindow) + Copy + 'static,
+    editing: Signal<Option<SplineEditConnection>>,
 ) -> impl IntoView {
     let canvas_ref = NodeRef::<Canvas>::new();
     let resize_handle = StoredValue::<Option<ResizeObserverHandle>, _>::new_local(None);
@@ -30,9 +34,18 @@ pub fn GriddedDisplay(
     let need_redraw = ArcTrigger::new();
     let viewport_box = Mailbox::new_scoped(viewport.into(), need_redraw.clone());
     let grid_box = Mailbox::new_scoped(grid_params.into(), need_redraw.clone());
-    log::info!("{:?}", handles.get_untracked());
-    let handles_box: Mailbox<Vec<DisplayHandle>> = Mailbox::new_scoped(handles.into(), need_redraw.clone());
-    let line_box: Mailbox<Vec<DVec2>> = Mailbox::new_scoped(line.into(), need_redraw.clone());
+    let handles_box: Mailbox<Vec<DisplayHandle>> = Mailbox::new_scoped(ArcSignal::derive(move || {
+        match editing.read().deref() {
+            Some(conn) => conn.handles.get(),
+            None => Vec::new(),
+        }
+    }), need_redraw.clone());
+    let line_box: Mailbox<Vec<DVec2>> = Mailbox::new_scoped(ArcSignal::derive(move || {
+        match editing.read().deref() {
+            Some(conn) => conn.line.get(),
+            None => Vec::new(),
+        }
+    }), need_redraw.clone());
 
     let on_frame = move || {
         if let Some((Some(renderer), pending)) = renderer_state.try_write_value().as_deref_mut() {
@@ -44,10 +57,10 @@ pub fn GriddedDisplay(
             if let Some(grid) = grid_box.get_new() {
                 renderer.set_grid_params(&grid);
             }
-            if let Some(h) = handles_box.read_new() {
+            if let Some(h) = handles_box.get_new() {
                 renderer.set_handles(&h);
             }
-            if let Some(points) = line_box.read_new() {
+            if let Some(points) = line_box.get_new() {
                 let (tangents, fits) = solve_clothoid_spline(&points);
                 let segments = stage_clothoid_spline(&points, &tangents, &fits);
                 log::info!("solved splines:\n{:?}\n{:?}\n{:?}", points.deref(), &tangents, &fits);
@@ -89,7 +102,9 @@ pub fn GriddedDisplay(
                 set_viewport.set(view);
             }
             if let Some(e) = opt_ev {
-                on_mouse(e, &view);
+                if let Some(conn) = editing.get_untracked() {
+                    conn.on_mouse.deref()(e, &view);
+                }
             }
         }
     };
@@ -106,7 +121,9 @@ pub fn GriddedDisplay(
         for g in gestures {
             let (opt_ev, moved, view) = scroller_state.write_value().handle_gesture(g);
             if let Some(e) = opt_ev {
-                on_mouse(e, &view);
+                if let Some(conn) = editing.get_untracked() {
+                    conn.on_mouse.deref()(e, &view);
+                }
             }
         }
         let view = scroller_state.write_value().handle_resize(device_size);

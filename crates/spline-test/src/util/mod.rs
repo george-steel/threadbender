@@ -51,14 +51,20 @@ impl<T> Mailbox<T> where
     }
 
     pub fn read_new(&self) -> Option<ReadGuard<T, SignalReadGuard<T, SyncStorage>>> {
-        self.inner.try_update_value(|inner|{
+        let maybe_sig = self.inner.try_update_value(|inner|{
             if inner.dirty {
                 inner.dirty = false;
-                Some(inner.signal.read_untracked())
+                Some(inner.signal.clone())
             } else {
                 None
             }
-        }).flatten()
+        }).flatten();
+
+        if let Some(sig) = maybe_sig {
+            Some(sig.read_untracked())
+        } else {
+            None
+        }
     }
 }
 
@@ -66,13 +72,19 @@ impl<T> Mailbox<T> where
     T: Send + Sync + Clone + 'static,
 {
     pub fn get_new(&self) -> Option<T> {
-        self.inner.try_update_value(|inner|{
+        let maybe_sig = self.inner.try_update_value(|inner|{
             if inner.dirty {
                 inner.dirty = false;
-                Some(inner.signal.get_untracked())
+                Some(inner.signal.clone())
             } else {
                 None
             }
-        }).flatten()
+        }).flatten();
+
+        if let Some(sig) = maybe_sig {
+            Some(sig.get_untracked())
+        } else {
+            None
+        }
     }
 }

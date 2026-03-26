@@ -148,7 +148,7 @@ struct ClothoidSegParams {
 }
 
 // get a specific point in a clothoid segment
-fn get_cloithoid_seg_point(seg: ClothoidSegParams, t: f32) -> vec2f {
+fn get_clothoid_seg_point(seg: ClothoidSegParams, t: f32) -> vec2f {
     let s = (t - 1) / 2;
     let part_seg = spiro2((seg.a + seg.b * s) * t, seg.b * t * t);
     let theta = (seg.a + 0.5 * s * seg.b) * s;

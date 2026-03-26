@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{HtmlCanvasElement, HtmlElement, PointerEvent, window};
 use wgpu::Surface;
 use leptos::{html::P, prelude::*};
-use crate::{display::GriddedDisplay, gputil::GPUContext, line::LineEditState, renderer::{GridParams, LineEditRenderer, RGBA16f}, viewport::{ViewportScroller, ViewportWindow, WorldMouseEvent}};
+use crate::{display::{GriddedDisplay, SplineEditConnection}, gputil::GPUContext, line::LineEditState, renderer::{GridParams, LineEditRenderer, RGBA16f}, viewport::{ViewportScroller, ViewportWindow, WorldMouseEvent}};
 
 
 pub mod gputil;
@@ -16,18 +16,6 @@ mod pointer;
 mod renderer;
 mod display;
 mod line;
-
-fn GrabbingP(message: String) -> impl IntoView {
-    let p_ref = NodeRef::<P>::new();
-    
-    p_ref.on_load(move |p|{
-        p.scroll_into_view();
-    });
-
-    view!{
-        <p node_ref=p_ref>{message}</p>
-    }
-}
 
 
 #[component]
@@ -53,15 +41,16 @@ fn App() -> impl IntoView {
         }
     };
 
-    let handle_sig = edit_state.read_value().handles.clone();
-    let held_line = edit_state.read_value().held_line.clone();
+    let editing = Signal::stored(Some(SplineEditConnection {
+        handles: edit_state.read_value().handles.clone().into(),
+        line: edit_state.read_value().held_line.clone().into(),
+        on_mouse: Arc::new(on_mouse),
+    }));
 
     view!{
         <GriddedDisplay
             grid_params=grid_params.into()
-            handles=handle_sig.into()
-            line=held_line.into()
-            on_mouse=on_mouse
+            editing=editing
         />
     }
 }
