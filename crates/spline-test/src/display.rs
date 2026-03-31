@@ -2,7 +2,7 @@
 use std::{mem::replace, ops::{Deref, DerefMut}, sync::Arc};
 
 use clone_all::clone_all;
-use clothoid::spline::{solve_clothoid_spline, stage_clothoid_spline};
+use clothoid::spline::{solve_clothoid_section, stage_clothoid_params};
 use leptos::{html::{Canvas, tr}, prelude::*, tachys::view, task::spawn_local};
 use glam::{DVec2, UVec2, dvec2, uvec2};
 use web_sys::{PointerEvent, WheelEvent, js_sys};
@@ -61,9 +61,8 @@ pub fn GriddedDisplay(
                 renderer.set_handles(&h);
             }
             if let Some(points) = line_box.get_new() {
-                let (tangents, fits) = solve_clothoid_spline(&points);
-                let segments = stage_clothoid_spline(&points, &tangents, &fits);
-                log::info!("solved splines:\n{:?}\n{:?}\n{:?}", points.deref(), &tangents, &fits);
+                let solution = solve_clothoid_section(&points);
+                let segments = stage_clothoid_params(&points, &solution);
                 renderer.set_splines(&segments);
             }
 

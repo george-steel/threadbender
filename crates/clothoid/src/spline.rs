@@ -165,41 +165,9 @@ fn start_circle_tangent(a: DVec2, b: DVec2, c: DVec2) -> DVec2 {
     ab.rotate(ca.rotate(cb * CONJ))
 }
 
-// Solves parameters for an Euler spiral (clothoid) spline.
-// Returns tangents and fit parameters
-pub fn solve_clothoid_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>){
+pub fn solve_clothoid_section_with_start(points: &[DVec2], mut tangents: Vec<f64>) -> (Vec<f64>, Vec<FitEulerResult>) {
     const MAX_ITER: u32 = 20;
     let n = points.len();
-
-    if n == 0 {
-        return (Vec::new(), Vec::new());
-    } else if n == 1 {
-        return (vec![0.0], Vec::new());
-    } else if n == 2 {
-        let v = points[1] - points[0];
-        let dir = v.y.atan2(v.x);
-        let fit = FitEulerResult {
-            a: 0.0,
-            b: 0.0,
-            rel_chord: DVec2::X,
-            curv: DVec2::ZERO,
-            curv_d0: DVec2::ZERO,
-            curv_d1: DVec2::ZERO,
-            jolt: 0.0,
-            jolt_d0: 0.0,
-            jolt_d1: 0.0,
-        };
-        return (vec![dir, dir], vec![fit])
-    }
-
-    // Start with tangents based on circle spline.
-    // This converges better than Catmull-Rom tangents
-    let mut tangents = vec![0.0; n];
-    tangents[0] = start_circle_tangent(points[0],points[1], points[2]).to_angle();
-    tangents[n-1] = (-start_circle_tangent(points[n-1],points[n-2], points[n-3])).to_angle();
-    for i in 1..(n-1) {
-        tangents[i] = mid_circle_tangent(points[i-1], points[i], points[i+1]).to_angle();
-    }
 
     let mut old_errsum = 0.0;
     let mut old_tans = Vec::new();
@@ -242,10 +210,60 @@ pub fn solve_clothoid_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>
     unreachable!()
 }
 
+pub struct SolvedClothoidSeg {
+    pub a: f64,
+    pub b: f64,
+    pub start_tan: f64,
+    pub end_tan: f64,
+    pub rel_chord: DVec2,
+}
+
+pub fn solve_clothoid_section(points: &[DVec2]) -> Vec<SolvedClothoidSeg> {
+    let n = points.len();
+    if n == 0 {
+        return Vec::new();
+    } else if n == 1 {
+        return Vec::new();
+    } else if n == 2 {
+        let v = points[1] - points[0];
+        let dir = v.y.atan2(v.x);
+        return vec![SolvedClothoidSeg {
+            a: 0.0,
+            b: 0.0,
+            start_tan: dir,
+            end_tan: dir,
+            rel_chord: DVec2::X,
+        }]
+    }
+
+    // Start with tangents based on circle spline.
+    // This converges better than Catmull-Rom tangents
+    let mut start_tans = vec![0.0; n];
+    start_tans[0] = start_circle_tangent(points[0],points[1], points[2]).to_angle();
+    start_tans[n-1] = (-start_circle_tangent(points[n-1],points[n-2], points[n-3])).to_angle();
+    for i in 1..(n-1) {
+        start_tans[i] = mid_circle_tangent(points[i-1], points[i], points[i+1]).to_angle();
+    }
+
+    let (tangents, fits) = solve_clothoid_section_with_start(points, start_tans);
+
+    let mut out = Vec::with_capacity(fits.len());
+    for (i, fit) in fits.iter().enumerate() {
+        out.push(SolvedClothoidSeg {
+            a: fit.a,
+            b: fit.b,
+            start_tan: tangents[i],
+            end_tan: tangents[(i+1) % n],
+            rel_chord: fit.rel_chord,
+        })
+    }
+    out
+}
+
 // Solved Euler spiral segment using f32 values for use in GPU buffers for rendering
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C, align(8))]
-pub struct ClothoidSegParams {
+pub struct ClothoidSegGPUParams {
     pub start: Vec2,
     pub end: Vec2,
     pub a: f32,
@@ -257,8 +275,32 @@ pub struct ClothoidSegParams {
     pub arc_start: f32,
 }
 
+pub fn stage_clothoid_params(points: &[DVec2], solution: &[SolvedClothoidSeg]) -> Vec<ClothoidSegGPUParams> {
+    let mut traveled = 0.0;
+    let mut out = Vec::new();
+    let n = points.len();
+    for (i, seg) in solution.iter().enumerate() {
+        let start = points[i];
+        let end = points[(i+1) % n];
+        let length = start.distance(end) / seg.rel_chord.length();
+        out.push(ClothoidSegGPUParams {
+            start: start.as_vec2(),
+            end: end.as_vec2(),
+            a: seg.a as f32,
+            b: seg.b as f32,
+            rel_chord: seg.rel_chord.as_vec2(),
+            start_tan: seg.start_tan as f32,
+            end_tan: seg.end_tan as f32,
+            arclen: length as f32,
+            arc_start: traveled as f32,
+        });
+        traveled += length;
+    }
+    out
+}
+
 // Convert a solution from solve_clothoid_spline to a single ClothoidDegParams buffer.
-pub fn stage_clothoid_spline(points: &[DVec2], tangents: &[f64], fits: &[FitEulerResult]) -> Vec<ClothoidSegParams> {
+pub fn stage_clothoid_spline(points: &[DVec2], tangents: &[f64], fits: &[FitEulerResult]) -> Vec<ClothoidSegGPUParams> {
     let n = points.len();
     if n < 2 {
         return Vec::new();
@@ -267,7 +309,7 @@ pub fn stage_clothoid_spline(points: &[DVec2], tangents: &[f64], fits: &[FitEule
     let mut start = 0.0;
     for i in 0..(n-1) {
         let arclen = fits[i].rel_chord.length_recip() * (points[i+1] - points[i]).length();
-        out.push(ClothoidSegParams {
+        out.push(ClothoidSegGPUParams {
             start: points[i].as_vec2(),
             end: points[i+1].as_vec2(),
             a: fits[i].a as f32,

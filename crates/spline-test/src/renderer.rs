@@ -2,7 +2,7 @@ use core::num;
 use std::num::NonZero;
 
 use bytemuck::bytes_of;
-use clothoid::spline::ClothoidSegParams;
+use clothoid::spline::ClothoidSegGPUParams;
 use glam::{Affine2, UVec2, Vec2};
 use half::f16;
 use image::flat::View;
@@ -308,7 +308,7 @@ impl LineEditRenderer {
 
         let spline_buf = gpu.device.create_buffer(&BufferDescriptor {
             label: Some("spline_buf"),
-            size: (Self::MAX_SPLINE_SEGS * size_of::<ClothoidSegParams>()) as u64, 
+            size: (Self::MAX_SPLINE_SEGS * size_of::<ClothoidSegGPUParams>()) as u64, 
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -391,7 +391,7 @@ impl LineEditRenderer {
         self.gpu.queue.write_buffer(&self.handle_buf, 0, bytemuck::cast_slice(&handles[0..num_handles]));
     }
 
-    pub fn set_splines(&mut self, handles: &[ClothoidSegParams]) {
+    pub fn set_splines(&mut self, handles: &[ClothoidSegGPUParams]) {
         let mut num_splines = handles.len();
         if num_splines > Self::MAX_SPLINE_SEGS {
             log::error!("too many spline segments to draw: {}", num_splines);
