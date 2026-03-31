@@ -6,7 +6,7 @@ use leptos::prelude::*;
 
 use crate::{display::SplineEditConnection, renderer::RGBA16f, viewport::{ViewportWindow, WorldMouseEvent}};
 
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
 pub struct DisplayHandle {
     pub world_pos: Vec2,
@@ -91,7 +91,7 @@ impl SplineEditState {
     }
 
     fn make_handles(self) -> ArcMemo<Vec<DisplayHandle>> {
-        ArcMemo::new_owning(move |_| {
+        ArcMemo::new(move |_| {
             let mode = self.mode.get();
             let mut line = self.true_line.get();
             let mut hilight = None;
@@ -115,7 +115,7 @@ impl SplineEditState {
                     radius = Self::HANDLE_RADIUS as f32 / 2.0; 
                 },
             }
-            let handles = line.iter().enumerate().map(|(i, p)| {
+            line.iter().enumerate().map(|(i, p)| {
                 let h = Some(i) == hilight;
                 let color = if h {Self::FILL_COLOR_HOVER} else {Self::FILL_COLOR_NORMAL};
                 let radius = if h {Self::HANDLE_RADIUS} else {radius};
@@ -126,8 +126,7 @@ impl SplineEditState {
                     fill_color: color,
                     line_color: Self::OUTLINE_COLOR,
                 }
-            }).collect();
-            (handles, true)
+            }).collect()
         })
     }
 
@@ -135,7 +134,7 @@ impl SplineEditState {
         SplineEditConnection {
             handles: self.clone().make_handles().into(),
             line: self.clone().make_held_line().into(),
-            on_mouse: Arc::new(move |ev, view| {self.handle_mouse(&ev, view);}),
+            on_mouse: Arc::new(move |ev, view| {self.handle_mouse(ev, view);}),
         }
     }
 
@@ -158,21 +157,30 @@ impl SplineEditState {
         self.held_point.set(None);
     }
 
-    pub fn handle_mouse(&self, ev: &WorldMouseEvent, view: &ViewportWindow) {
+    pub fn handle_mouse(&self, ev: WorldMouseEvent, view: &ViewportWindow) {
         let hover_rad = Self::HANDLE_HIT_RADIUS * view.css_px_ratio / view.px_per_unit;
         match ev {
             WorldMouseEvent::Out => {
                 self.hover_index.set(None);
+                if let SplineEditMode::Extend(_) = self.mode.get_untracked() {
+                    self.held_point.set(None);
+                }
             },
             WorldMouseEvent::Hover(p) => {
-                let hit = self.hit_test(*p, hover_rad);
-                let old_hit = self.hover_index.get_untracked();
-                if hit != old_hit {
-                    self.hover_index.set(hit);
+                let hit = self.hit_test(p, hover_rad);
+                if let (None, SplineEditMode::Extend(_)) = (hit, self.mode.get_untracked()) {
+                    self.hover_index.set(None);
+                    self.held_point.set(Some(p));
+                } else {
+                    let old_hit = self.hover_index.get_untracked();
+                    if hit != old_hit {
+                        self.held_point.set(None);
+                        self.hover_index.set(hit);
+                    }
                 }
             },
             WorldMouseEvent::Click(p) => {
-                let hit = self.hit_test(*p, hover_rad);
+                let hit = self.hit_test(p, hover_rad);
                 let num_points = self.true_line.read_untracked().len();
                 match self.mode.get_untracked() {
                     SplineEditMode::Refine => {
@@ -189,25 +197,25 @@ impl SplineEditState {
                         if hit == Some(0) {
                             self.set_refine();
                         } else {
-                            self.true_line.write().insert(0, *p);
+                            self.true_line.write().insert(0, p);
                         }
                     },
                     SplineEditMode::Extend(ExtendEnd::End) => {
                         if num_points >= 2 && hit == Some(num_points - 1) {
                             self.set_refine();
                         } else {
-                            self.true_line.write().push(*p);
+                            self.true_line.write().push(p);
                         }
                     },
                 }
             },
             WorldMouseEvent::DragStart(p) => {
-                let hit = self.hit_test(*p, hover_rad);
+                let hit = self.hit_test(p, hover_rad);
                 match self.mode.get_untracked() {
                     SplineEditMode::Refine => {
                         if let Some(i) = hit {
                             self.mode.set(SplineEditMode::Dragging(i));
-                            self.held_point.set(Some(*p));
+                            self.held_point.set(Some(p));
                         }
                     },
                     SplineEditMode::Dragging(_) => {
@@ -218,28 +226,28 @@ impl SplineEditState {
                         if let Some(i) = hit {
                             self.mode.set(SplineEditMode::Dragging(i));
                         }
-                        self.held_point.set(Some(*p));
+                        self.held_point.set(Some(p));
                     },
                 }
             },
             WorldMouseEvent::DragMove(p) => {match self.mode.get_untracked() {
                 SplineEditMode::Refine => {},
                 SplineEditMode::Dragging(_) | SplineEditMode::Extend(_) => {
-                    self.held_point.set(Some(*p));
+                    self.held_point.set(Some(p));
                 },
             }},
             WorldMouseEvent::DragDone(p) => {match self.mode.get_untracked() {
                 SplineEditMode::Refine => {},
                 SplineEditMode::Dragging(idx) => {
-                    self.true_line.write()[idx] = *p;
+                    self.true_line.write()[idx] = p;
                     self.set_refine();
                 },
                 SplineEditMode::Extend(ExtendEnd::Start) => {
-                    self.true_line.write().insert(0, *p);
+                    self.true_line.write().insert(0, p);
                     self.held_point.set(None);
                 },
                 SplineEditMode::Extend(ExtendEnd::End) => {
-                    self.true_line.write().push(*p);
+                    self.true_line.write().push(p);
                     self.held_point.set(None);
                 },
 
