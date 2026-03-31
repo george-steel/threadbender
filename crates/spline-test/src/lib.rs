@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{HtmlCanvasElement, HtmlElement, PointerEvent, window};
 use wgpu::Surface;
 use leptos::{html::P, prelude::*};
-use crate::{display::{GriddedDisplay, SplineEditConnection}, gputil::GPUContext, line::LineEditState, renderer::{GridParams, LineEditRenderer, RGBA16f}, viewport::{ViewportScroller, ViewportWindow, WorldMouseEvent}};
+use crate::{display::{GriddedDisplay, SplineEditConnection}, gputil::GPUContext, line::SplineEditState, renderer::{GridParams, LineEditRenderer, RGBA16f}, viewport::{ViewportScroller, ViewportWindow, WorldMouseEvent}};
 
 
 pub mod gputil;
@@ -29,23 +29,10 @@ fn App() -> impl IntoView {
         background_color: RGBA16f::rgba(0.0, 0.0, 0.0, 0.0),
     });
 
-    let init_line: Vec<DVec2> = (-5..5).map(|x: i32| {ivec2(x, x).as_dvec2()}).collect();
-    let true_line = ArcRwSignal::new(init_line);
+    let true_line = ArcRwSignal::new(Vec::new());
 
-    let edit_state = StoredValue::new(LineEditState::new(true_line.clone()));
-    let on_mouse = move |ev:WorldMouseEvent, view: &ViewportWindow| {
-        if let Some(ref mut st) = edit_state.try_write_value() {
-            st.handle_mouse(&ev, view);
-        } else {
-            log::error!("edit_state is disposed");
-        }
-    };
-
-    let editing = Signal::stored(Some(SplineEditConnection {
-        handles: edit_state.read_value().handles.clone().into(),
-        line: edit_state.read_value().held_line.clone().into(),
-        on_mouse: Arc::new(on_mouse),
-    }));
+    let edit_state = SplineEditState::new(true_line.clone());
+    let editing = Signal::stored(Some(edit_state.make_conn()));
 
     view!{
         <GriddedDisplay

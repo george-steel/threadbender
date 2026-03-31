@@ -171,6 +171,27 @@ pub fn solve_clothoid_spline(points: &[DVec2]) -> (Vec<f64>, Vec<FitEulerResult>
     const MAX_ITER: u32 = 20;
     let n = points.len();
 
+    if n == 0 {
+        return (Vec::new(), Vec::new());
+    } else if n == 1 {
+        return (vec![0.0], Vec::new());
+    } else if n == 2 {
+        let v = points[1] - points[0];
+        let dir = v.y.atan2(v.x);
+        let fit = FitEulerResult {
+            a: 0.0,
+            b: 0.0,
+            rel_chord: DVec2::X,
+            curv: DVec2::ZERO,
+            curv_d0: DVec2::ZERO,
+            curv_d1: DVec2::ZERO,
+            jolt: 0.0,
+            jolt_d0: 0.0,
+            jolt_d1: 0.0,
+        };
+        return (vec![dir, dir], vec![fit])
+    }
+
     // Start with tangents based on circle spline.
     // This converges better than Catmull-Rom tangents
     let mut tangents = vec![0.0; n];
@@ -239,6 +260,9 @@ pub struct ClothoidSegParams {
 // Convert a solution from solve_clothoid_spline to a single ClothoidDegParams buffer.
 pub fn stage_clothoid_spline(points: &[DVec2], tangents: &[f64], fits: &[FitEulerResult]) -> Vec<ClothoidSegParams> {
     let n = points.len();
+    if n < 2 {
+        return Vec::new();
+    }
     let mut out = Vec::new();
     let mut start = 0.0;
     for i in 0..(n-1) {
