@@ -2,6 +2,7 @@ use glam::{DVec2, Vec2, dvec2};
 use std::{f64::consts::{PI, TAU}, mem::replace};
 
 pub use crate::fresnel::*;
+use crate::util::{solve_cyclic_tridiag, solve_tridiag};
 
 // Raph Levien, From Spiral to Spline, fig 8.3.
 // Find (a, b) for spiral segment using endpoint angles CCW from chord.
@@ -87,27 +88,6 @@ fn fit_euler_abs_deriv(p0: DVec2, p1: DVec2, th0: f64, th1: f64) -> FitEulerResu
     FitEulerResult { a, b, rel_chord, curv, curv_d0 , curv_d1, jolt, jolt_d0, jolt_d1 }
 }
 
-// Adapted from Numerical Recepies
-pub fn solve_tridiag(m: &[[f64; 3]], r: &[f64]) -> Vec<f64> {
-    let n = m.len();
-    let mut u = vec![0.0; n];
-
-    let mut gamma = vec![0.0; n];
-    let mut beta = m[0][1];
-
-    u[0] = r[0] / beta;
-
-    for j in 1..n {
-        gamma[j] = m[j-1][2] / beta;
-        beta = m[j][1] - m[j][0] * gamma[j];
-        u[j] = (r[j] - m[j][0]*u[j-1]) / beta;
-    }
-    for j in (0..(n-1)).rev() {
-        u[j] -= gamma[j+1] * u[j +1];
-    }
-    u
-}
-
 // Measures error and calculates new tangents using a single round of Newton iteration
 fn refine_euler(points: &[DVec2], tangents: &[f64]) -> (Vec<FitEulerResult>, Vec<f64>, Option<Vec<f64>>) {
     let n = points.len();
@@ -145,6 +125,37 @@ fn refine_euler(points: &[DVec2], tangents: &[f64]) -> (Vec<FitEulerResult>, Vec
     (fits, errs, Some(new_tans))
 }
 
+// Measures error and calculates new tangents using a single round of Newton iteration
+fn refine_euler_cyclic(points: &[DVec2], tangents: &[f64]) -> (Vec<FitEulerResult>, Vec<f64>, Option<Vec<f64>>) {
+    let n = points.len();
+    let mut fits = Vec::with_capacity(n-1);
+    for i in 0..(n) {
+        let j = (i + 1) % n;
+        fits.push(fit_euler_abs_deriv(points[i], points[j], tangents[i], tangents[j]));
+    }
+
+    let mut jac = Vec::with_capacity(n);
+    let mut errs = Vec::with_capacity(n);
+
+    for i in 0..n {
+        let j = (i + n - 1) % n;
+        errs.push(fits[i].curv.x - fits[j].curv.y);
+        jac.push([-fits[j].curv_d0.y, fits[i].curv_d0.x - fits[j].curv_d1.y, fits[i].curv_d1.x]);
+    }
+    
+    let maxerr = errs.iter().copied().map(f64::abs).reduce(f64::max).unwrap_or(0.);
+    if maxerr < 1e-3 {
+        return(fits, errs, None);
+    }
+
+    let deltas = solve_cyclic_tridiag(jac, &errs);
+    let mut new_tans = Vec::with_capacity(n);
+    for i in 0..n {
+        new_tans.push(tangents[i] - deltas[i]);
+    }
+    (fits, errs, Some(new_tans))
+}
+
 const CONJ: DVec2 = dvec2(1.0, -1.0);
 
 // tangent oc circumcircle of a,b,c at b
@@ -165,7 +176,7 @@ fn start_circle_tangent(a: DVec2, b: DVec2, c: DVec2) -> DVec2 {
     ab.rotate(ca.rotate(cb * CONJ))
 }
 
-pub fn solve_clothoid_section_with_start(points: &[DVec2], mut tangents: Vec<f64>) -> (Vec<f64>, Vec<FitEulerResult>) {
+pub fn solve_clothoid_section_with_start(points: &[DVec2], mut tangents: Vec<f64>, cyclic: bool) -> (Vec<f64>, Vec<FitEulerResult>) {
     const MAX_ITER: u32 = 20;
     let n = points.len();
 
@@ -173,7 +184,11 @@ pub fn solve_clothoid_section_with_start(points: &[DVec2], mut tangents: Vec<f64
     let mut old_tans = Vec::new();
 
     for pass in 0..=MAX_ITER {
-        let (fits, errs, next) = refine_euler(&points, &tangents);
+        let (fits, errs, next) = if cyclic {
+            refine_euler_cyclic(&points, &tangents)
+        } else {
+            refine_euler(&points, &tangents)
+        };
 
         let new_tans = match next {
             Some(new_tans) => {
@@ -218,7 +233,7 @@ pub struct SolvedClothoidSeg {
     pub rel_chord: DVec2,
 }
 
-pub fn solve_clothoid_section(points: &[DVec2]) -> Vec<SolvedClothoidSeg> {
+pub fn solve_clothoid_section(points: &[DVec2], cyclic: bool) -> Vec<SolvedClothoidSeg> {
     let n = points.len();
     if n == 0 {
         return Vec::new();
@@ -239,13 +254,18 @@ pub fn solve_clothoid_section(points: &[DVec2]) -> Vec<SolvedClothoidSeg> {
     // Start with tangents based on circle spline.
     // This converges better than Catmull-Rom tangents
     let mut start_tans = vec![0.0; n];
-    start_tans[0] = start_circle_tangent(points[0],points[1], points[2]).to_angle();
-    start_tans[n-1] = (-start_circle_tangent(points[n-1],points[n-2], points[n-3])).to_angle();
+    if cyclic {
+        start_tans[0] = mid_circle_tangent(points[n-1], points[0], points[1]).to_angle();
+        start_tans[n-1] = mid_circle_tangent(points[n-2], points[n-1], points[0]).to_angle();
+    } else {
+        start_tans[0] = start_circle_tangent(points[0], points[1], points[2]).to_angle();
+        start_tans[n-1] = (-start_circle_tangent(points[n-1], points[n-2], points[n-3])).to_angle();
+    }
     for i in 1..(n-1) {
         start_tans[i] = mid_circle_tangent(points[i-1], points[i], points[i+1]).to_angle();
     }
 
-    let (tangents, fits) = solve_clothoid_section_with_start(points, start_tans);
+    let (tangents, fits) = solve_clothoid_section_with_start(points, start_tans, cyclic);
 
     let mut out = Vec::with_capacity(fits.len());
     for (i, fit) in fits.iter().enumerate() {

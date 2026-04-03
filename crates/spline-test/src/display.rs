@@ -61,7 +61,7 @@ pub fn GriddedDisplay(
                 renderer.set_handles(&h);
             }
             if let Some(points) = line_box.get_new() {
-                let solution = solve_clothoid_section(&points);
+                let solution = solve_clothoid_section(&points, true);
                 let segments = stage_clothoid_params(&points, &solution);
                 renderer.set_splines(&segments);
             }
