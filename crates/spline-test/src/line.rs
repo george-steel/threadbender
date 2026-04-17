@@ -1,10 +1,11 @@
 use std::{cmp::max, num, sync::Arc};
 
 use clone_all::clone_all;
+use clothoid::spline::ClothoidSplineCage;
 use glam::{DVec2, Vec2};
 use leptos::prelude::*;
 
-use crate::{display::SplineEditConnection, renderer::RGBA16f, viewport::{ViewportWindow, WorldMouseEvent}};
+use crate::{display::SplineEditConnection, pointer::MouseButton, renderer::RGBA16f, viewport::{ViewportWindow, WorldMouseEvent}};
 
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
@@ -16,7 +17,7 @@ pub struct DisplayHandle {
     pub line_color: RGBA16f,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExtendEnd {
     Start,
     End,
@@ -31,7 +32,8 @@ pub enum SplineEditMode {
 
 #[derive(Debug, Clone)]
 pub struct SplineEditState {
-    pub true_line: ArcRwSignal<Vec<DVec2>>,
+    pub closed_only: bool,
+    pub true_line: ArcRwSignal<ClothoidSplineCage>,
     pub mode: ArcRwSignal<SplineEditMode>,
     pub held_point: ArcRwSignal<Option<DVec2>>,
     pub hover_index: ArcRwSignal<Option<usize>>,
@@ -45,11 +47,12 @@ impl SplineEditState {
     pub const FILL_COLOR_NORMAL: RGBA16f = RGBA16f::rgba(0.1, 0.1, 0.1, 1.0);
     pub const FILL_COLOR_HOVER: RGBA16f = RGBA16f::rgba(0.8, 0.8, 0.8, 1.0);
 
-    pub fn new(true_line: ArcRwSignal<Vec<DVec2>>) -> Self {
-        let start_len = true_line.read_untracked().len();
+    pub fn new(true_line: ArcRwSignal<ClothoidSplineCage>, closed_only: bool) -> Self {
+        let start_len = true_line.read_untracked().num_points();
         let start_mode = if start_len < 2 {SplineEditMode::Extend(ExtendEnd::End)} else {SplineEditMode::Refine};
         
         SplineEditState {
+            closed_only,
             true_line,
             mode: ArcRwSignal::new(start_mode),
             held_point: ArcRwSignal::new(None),
@@ -57,8 +60,8 @@ impl SplineEditState {
         }
     }
 
-    fn make_held_line(self) -> ArcMemo<Vec<DVec2>> {
-        ArcMemo::new_owning(move |old: Option<Vec<DVec2>>| {
+    fn make_held_line(self) -> ArcMemo<ClothoidSplineCage> {
+        ArcMemo::new_owning(move |old: Option<ClothoidSplineCage>| {
             match self.mode.get() {
                 SplineEditMode::Refine => {
                     //let old_empty = if let Some(old_vec) = old {old_vec.is_empty()} else {false};
@@ -68,19 +71,24 @@ impl SplineEditState {
                 SplineEditMode::Dragging(idx) => {
                     let mut line = self.true_line.get();
                     if let Some(p) = self.held_point.get() {
-                        line[idx] = p;
+                        line.points[idx] = p;
                     }
                     (line, true)
                 },
                 SplineEditMode::Extend(end) => {
                     let mut line = self.true_line.get();
-                    if let Some(p) = self.held_point.get() {
+                    if let Some(hover) = self.hover_index.get() {
+                        if (end == ExtendEnd::Start && hover == line.num_points() - 1) || (end == ExtendEnd::End && hover == 0) {
+                            line.closed = true;
+                        }
+                    } else if let Some(p) = self.held_point.get() {
+                        line.closed = false;
                         match end {
                             ExtendEnd::Start => {
-                                line.insert(0, p);
+                                line.insert_point(0, p, false);
                             },
                             ExtendEnd::End => {
-                                line.push(p);
+                                line.extend(p, false);
                             },
                         }
                     }
@@ -103,7 +111,7 @@ impl SplineEditState {
                 },
                 SplineEditMode::Dragging(idx) => {
                     if let Some(p) = self.held_point.get() {
-                        line[idx] = p;
+                        line.points[idx] = p;
                     }
                     hilight = Some(idx);
                 },
@@ -111,11 +119,11 @@ impl SplineEditState {
                     hilight = Some(0);
                 },
                 SplineEditMode::Extend(ExtendEnd::End) => {
-                    hilight = line.len().checked_sub(1);
+                    hilight = line.num_points().checked_sub(1);
                     radius = Self::HANDLE_RADIUS as f32 / 2.0; 
                 },
             }
-            line.iter().enumerate().map(|(i, p)| {
+            line.points.iter().enumerate().map(|(i, p)| {
                 let h = Some(i) == hilight;
                 let color = if h {Self::FILL_COLOR_HOVER} else {Self::FILL_COLOR_NORMAL};
                 let radius = if h {Self::HANDLE_RADIUS} else {radius};
@@ -141,7 +149,7 @@ impl SplineEditState {
     fn hit_test(&self, hit_point: DVec2, max_dist: f64) -> Option<usize> {
         let mut hit = None;
         let mut dist = max_dist;
-        for (i, p) in self.true_line.read_untracked().iter().enumerate() {
+        for (i, p) in self.true_line.read_untracked().points.iter().enumerate() {
             let d = p.distance(hit_point);
             if d < dist {
                 hit = Some(i);
@@ -179,9 +187,9 @@ impl SplineEditState {
                     }
                 }
             },
-            WorldMouseEvent::Click(p) => {
+            WorldMouseEvent::Click(button, p) => {
                 let hit = self.hit_test(p, hover_rad);
-                let num_points = self.true_line.read_untracked().len();
+                let num_points = self.true_line.read_untracked().num_points();
                 match self.mode.get_untracked() {
                     SplineEditMode::Refine => {
                         if hit == num_points.checked_sub(1) {
@@ -194,22 +202,28 @@ impl SplineEditState {
                         log::warn!("click detected when dragging");
                     },
                     SplineEditMode::Extend(ExtendEnd::Start) => {
-                        if hit == Some(0) {
+                        if num_points >= 2 && hit == Some(0) {
+                            self.set_refine();
+                        } else if num_points >= 2 && hit == Some(num_points - 1) {
+                            self.true_line.write().closed = true;
                             self.set_refine();
                         } else {
-                            self.true_line.write().insert(0, p);
+                            self.true_line.write().insert_point(0, p, button == MouseButton::Right);
                         }
                     },
                     SplineEditMode::Extend(ExtendEnd::End) => {
                         if num_points >= 2 && hit == Some(num_points - 1) {
                             self.set_refine();
+                        } else if num_points >= 2 && hit == Some(0) {
+                            self.true_line.write().closed = true;
+                            self.set_refine();
                         } else {
-                            self.true_line.write().push(p);
+                            self.true_line.write().extend(p, button == MouseButton::Right);
                         }
                     },
                 }
             },
-            WorldMouseEvent::DragStart(p) => {
+            WorldMouseEvent::DragStart(button, p) => {
                 let hit = self.hit_test(p, hover_rad);
                 match self.mode.get_untracked() {
                     SplineEditMode::Refine => {
@@ -222,7 +236,6 @@ impl SplineEditState {
                         log::warn!("nested drags detected");
                     },
                     SplineEditMode::Extend(_) => {
-                        let num_points = self.true_line.read_untracked().len();
                         if let Some(i) = hit {
                             self.mode.set(SplineEditMode::Dragging(i));
                         }
@@ -236,18 +249,18 @@ impl SplineEditState {
                     self.held_point.set(Some(p));
                 },
             }},
-            WorldMouseEvent::DragDone(p) => {match self.mode.get_untracked() {
+            WorldMouseEvent::DragDone(button, p) => {match self.mode.get_untracked() {
                 SplineEditMode::Refine => {},
                 SplineEditMode::Dragging(idx) => {
-                    self.true_line.write()[idx] = p;
+                    self.true_line.write().points[idx] = p;
                     self.set_refine();
                 },
                 SplineEditMode::Extend(ExtendEnd::Start) => {
-                    self.true_line.write().insert(0, p);
+                    self.true_line.write().insert_point(0, p, button == MouseButton::Right);
                     self.held_point.set(None);
                 },
                 SplineEditMode::Extend(ExtendEnd::End) => {
-                    self.true_line.write().push(p);
+                    self.true_line.write().extend(p, button == MouseButton::Right);
                     self.held_point.set(None);
                 },
 

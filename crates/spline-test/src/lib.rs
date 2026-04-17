@@ -1,5 +1,7 @@
-use std::{collections::VecDeque, io::Cursor, sync::Arc};
+use std::{collections::VecDeque, io::Cursor, ops::Deref, sync::Arc};
 
+use clothoid::spline::ClothoidSplineCage;
+use clone_all::clone_all;
 use glam::{DVec2, UVec2, dvec2, ivec2};
 use wasm_bindgen::prelude::*;
 use web_sys::{HtmlCanvasElement, HtmlElement, PointerEvent, window};
@@ -29,9 +31,14 @@ fn App() -> impl IntoView {
         background_color: RGBA16f::rgba(0.0, 0.0, 0.0, 0.0),
     });
 
-    let true_line = ArcRwSignal::new(Vec::new());
+    let true_line = ArcRwSignal::new(ClothoidSplineCage::new());
 
-    let edit_state = SplineEditState::new(true_line.clone());
+    Effect::new({clone_all!(true_line); move ||{
+        let line = true_line.read();
+        log::info!("{:#?}", line.deref());
+    }});
+
+    let edit_state = SplineEditState::new(true_line.clone(), false);
     let editing = Signal::stored(Some(edit_state.make_conn()));
 
     view!{

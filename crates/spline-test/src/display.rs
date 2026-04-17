@@ -1,18 +1,18 @@
 
-use std::{mem::replace, ops::{Deref, DerefMut}, sync::Arc};
+use std::{fmt::Pointer, mem::replace, ops::{Deref, DerefMut}, sync::Arc};
 
 use clone_all::clone_all;
-use clothoid::spline::{solve_clothoid_section, stage_clothoid_params};
+use clothoid::spline::{ClothoidSplineCage, solve_clothoid_section, stage_clothoid_params};
 use leptos::{html::{Canvas, tr}, prelude::*, tachys::view, task::spawn_local};
 use glam::{DVec2, UVec2, dvec2, uvec2};
-use web_sys::{PointerEvent, WheelEvent, js_sys};
+use web_sys::{MouseEvent, PointerEvent, WheelEvent, js_sys};
 
 use crate::{gputil::GPUContext, line::DisplayHandle, pointer::GestureRecognizer, renderer::{GridParams, LineEditRenderer}, util::{Mailbox, resize::{ResizeObserverHandle, auto_resize_canvas}}, viewport::{ViewportScroller, ViewportWindow, WorldMouseEvent}};
 
 #[derive(Clone)]
 pub struct  SplineEditConnection {
     pub handles: ArcSignal<Vec<DisplayHandle>>,
-    pub line: ArcSignal<Vec<DVec2>>,
+    pub line: ArcSignal<ClothoidSplineCage>,
     pub on_mouse: Arc<dyn Fn(WorldMouseEvent, &ViewportWindow) + Send + Sync>,
 }
 
@@ -40,10 +40,10 @@ pub fn GriddedDisplay(
             None => Vec::new(),
         }
     }), need_redraw.clone());
-    let line_box: Mailbox<Vec<DVec2>> = Mailbox::new_scoped(ArcSignal::derive(move || {
+    let line_box: Mailbox<ClothoidSplineCage> = Mailbox::new_scoped(ArcSignal::derive(move || {
         match editing.read().deref() {
             Some(conn) => conn.line.get(),
-            None => Vec::new(),
+            None => ClothoidSplineCage::new(),
         }
     }), need_redraw.clone());
 
@@ -60,9 +60,9 @@ pub fn GriddedDisplay(
             if let Some(h) = handles_box.get_new() {
                 renderer.set_handles(&h);
             }
-            if let Some(points) = line_box.get_new() {
-                let solution = solve_clothoid_section(&points, true);
-                let segments = stage_clothoid_params(&points, &solution);
+            if let Some(line) = line_box.get_new() {
+                let solution = line.solve();
+                let segments = stage_clothoid_params(&line.points, &solution);
                 renderer.set_splines(&segments);
             }
 
@@ -106,6 +106,7 @@ pub fn GriddedDisplay(
                 }
             }
         }
+        raw_event.prevent_default();
     };
 
     let on_wheel_event = move |raw_event: WheelEvent| {
@@ -113,6 +114,10 @@ pub fn GriddedDisplay(
             let view = scroller_state.write_value().handle_wheel(delta, clip);
             set_viewport.set(view);
         }
+    };
+
+    let on_context_menu_event = move |raw_event: MouseEvent| {
+        raw_event.prevent_default();
     };
 
     let on_resize = move |css_size: DVec2, device_size: UVec2| {
@@ -133,6 +138,7 @@ pub fn GriddedDisplay(
         };
         need_redraw.notify();
     };
+
 
     canvas_ref.on_load(move |canvas| {
         let init_css_size = dvec2(canvas.client_width() as f64, canvas.client_height() as f64);
@@ -178,5 +184,6 @@ pub fn GriddedDisplay(
         on:pointerleave=on_pointer_event
         on:pointercancel=on_pointer_event
         on:wheel=on_wheel_event
+        on:contextmenu=on_context_menu_event
     />}
 }

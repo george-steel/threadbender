@@ -1,6 +1,6 @@
 use glam::{DAffine2, DVec2, UVec2, Vec2, uvec2};
 
-use crate::pointer::GestureEvent;
+use crate::pointer::{GestureEvent, MouseButton};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ViewportWindow {
@@ -99,10 +99,10 @@ impl ViewportUniforms {
 pub enum WorldMouseEvent {
     Out,
     Hover(DVec2),
-    Click(DVec2),
-    DragStart(DVec2), // hit location
+    Click(MouseButton, DVec2),
+    DragStart(MouseButton, DVec2), // hit location
     DragMove(DVec2), // current location
-    DragDone(DVec2),
+    DragDone(MouseButton, DVec2),
     DragCancel,
 }
 
@@ -145,25 +145,25 @@ impl ViewportScroller {
                 let world = from_clip.transform_point2(clip);
                 (Some(WorldMouseEvent::Hover(world)), false)
             },
-            GestureEvent::Click(clip) => {
+            GestureEvent::Click(button, clip) => {
                 let from_clip = self.current_view.to_clip().inverse();
                 let world = from_clip.transform_point2(clip);
-                (Some(WorldMouseEvent::Click(world)), false)
+                (Some(WorldMouseEvent::Click(button, world)), false)
             },
-            GestureEvent::DragStart(clip) => {
+            GestureEvent::DragStart(button, clip) => {
                 let from_clip = self.current_view.to_clip().inverse();
                 let world = from_clip.transform_point2(clip);
-                (Some(WorldMouseEvent::DragStart(world)), false)
+                (Some(WorldMouseEvent::DragStart(button, world)), false)
             },
-            GestureEvent::DragMove(clip) => {
+            GestureEvent::DragMove(_, clip) => {
                 let from_clip = self.current_view.to_clip().inverse();
                 let world = from_clip.transform_point2(clip);
                 (Some(WorldMouseEvent::DragMove(world)), false)
             },
-            GestureEvent::DragDone(clip) => {
+            GestureEvent::DragDone(button, clip) => {
                 let from_clip = self.current_view.to_clip().inverse();
                 let world = from_clip.transform_point2(clip);
-                (Some(WorldMouseEvent::DragDone(world)), false)
+                (Some(WorldMouseEvent::DragDone(button, world)), false)
             },
             GestureEvent::DragCancel => {
                 (Some(WorldMouseEvent::DragCancel), false)

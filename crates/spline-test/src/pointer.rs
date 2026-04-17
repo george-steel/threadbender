@@ -1,19 +1,26 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use glam::{DVec2, dvec2};
 use web_sys::js_sys;
+use web_time::Instant;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct PointerID(i32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MouseButton {
+    Left,
+    Right,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum GestureEvent {
     Out,
     Hover(DVec2), // clip space
-    Click(DVec2),
-    DragStart(DVec2), // hit location
-    DragMove(DVec2), // current location
-    DragDone(DVec2),
+    Click(MouseButton, DVec2),
+    DragStart(MouseButton, DVec2), // hit location
+    DragMove(MouseButton, DVec2), // current location
+    DragDone(MouseButton, DVec2),
     DragCancel,
     ScrollStart,
     ScrollMove(f64, DVec2), // relative to scroll start, acts on old clip space
@@ -23,8 +30,8 @@ pub enum GestureEvent {
 #[derive(Clone, Debug)]
 enum GestureState{
     Idle,
-    Down(PointerID, DVec2), // start position in clip space
-    Dragging(PointerID, DVec2),
+    Down(PointerID, MouseButton, Instant, DVec2), // start position in clip space
+    Dragging(PointerID, MouseButton, DVec2),
     TouchScroll(TouchScrollState, TouchScrollState),
     MouseScroll(PointerID, f64, DVec2),
     WaitForSettle(HashSet<PointerID>),
@@ -45,6 +52,7 @@ pub struct GestureRecognizer {
 
 impl GestureRecognizer {
     const MIN_DRAG_DIST: f64 = 4.0;
+    const TOUCH_RIGHT_DELAY: Duration = Duration::from_millis(600);
 
     pub fn new(size: DVec2) -> Self {
         GestureRecognizer {
@@ -60,11 +68,11 @@ impl GestureRecognizer {
             GestureState::Idle => {
                 vec![GestureEvent::Out]
             },
-            GestureState::Down(pointer, _) => {
+            GestureState::Down(pointer, _, _, _) => {
                 self.state = GestureState::WaitForSettle(HashSet::from([pointer]));
                 vec![GestureEvent::Out]
             },
-            GestureState::Dragging(pointer, _) => {
+            GestureState::Dragging(pointer, _, _) => {
                 self.state = GestureState::WaitForSettle(HashSet::from([pointer]));
                 vec![GestureEvent::DragCancel]
             },
@@ -109,18 +117,27 @@ impl GestureRecognizer {
                     Vec::new()
                 }
             },
-            GestureState::Down(pressed, started) => {
-                if ptr == pressed && offset.distance(started) >= Self::MIN_DRAG_DIST {
-                    self.state = GestureState::Dragging(pressed, started);
-                    let start_clip = self.to_clip(started);
-                    vec![GestureEvent::DragStart(start_clip), GestureEvent::DragMove(clip)]
+            GestureState::Down(pressed, start_button, start_time, start_pos) => {
+                if ptr == pressed && offset.distance(start_pos) >= Self::MIN_DRAG_DIST {
+                    let start_clip = self.to_clip(start_pos);
+                    
+                    let now = Instant::now();
+                    let press_time = now.duration_since(start_time);
+                    let button = if press_time >= Self::TOUCH_RIGHT_DELAY && event.pointer_type() != "mouse" {
+                        MouseButton::Right
+                    } else {
+                        start_button
+                    };
+
+                    self.state = GestureState::Dragging(pressed, button, start_pos);
+                    vec![GestureEvent::DragStart(button, start_clip), GestureEvent::DragMove(button, clip)]
                 } else {
                     Vec::new()
                 }
             },
-            GestureState::Dragging(pressed, started) => {
+            GestureState::Dragging(pressed, button, started) => {
                 if ptr == pressed {
-                    vec![GestureEvent::DragMove(clip)]
+                    vec![GestureEvent::DragMove(button, clip)]
                 } else {
                     Vec::new()
                 }
@@ -153,10 +170,19 @@ impl GestureRecognizer {
                 log::warn!("pointerup fired with no pressed pointers tracked");
                 Vec::new()
             },
-            GestureState::Down(pressed, started) => {
+            GestureState::Down(pressed, start_button, start_time, start_pos) => {
                 if ptr == pressed {
                     self.state = GestureState::Idle;
-                    let mut out = vec![GestureEvent::Click(self.to_clip(started))];
+
+                    let now = Instant::now();
+                    let press_time = now.duration_since(start_time);
+                    let button = if press_time >= Self::TOUCH_RIGHT_DELAY && event.pointer_type() != "mouse" {
+                        MouseButton::Right
+                    } else {
+                        start_button
+                    };
+
+                    let mut out = vec![GestureEvent::Click(button, self.to_clip(start_pos))];
                     if self.pointers_in.len() == 1 && self.pointers_in.contains(&ptr) {
                         out.push(GestureEvent::Hover(clip));
                     }
@@ -166,10 +192,10 @@ impl GestureRecognizer {
                     Vec::new()
                 }
             },
-            GestureState::Dragging(pressed, _) => {
+            GestureState::Dragging(pressed, button, _) => {
                 if ptr == pressed {
                     self.state = GestureState::Idle;
-                    let mut out = vec![GestureEvent::DragDone(clip)];
+                    let mut out = vec![GestureEvent::DragDone(button, clip)];
                     if self.pointers_in.len() == 1 && self.pointers_in.contains(&ptr) {
                         out.push(GestureEvent::Hover(clip));
                     }
@@ -214,9 +240,12 @@ impl GestureRecognizer {
             GestureState::Idle => {
                 let buttons = event.buttons();
                 if buttons == 1 {
-                    self.state = GestureState::Down(ptr, offset);
+                    self.state = GestureState::Down(ptr, MouseButton::Left, Instant::now(), offset);
                     vec![GestureEvent::Hover(clip)]
-                } else if buttons == 4 {
+                } else if buttons == 2 {
+                    self.state = GestureState::Down(ptr, MouseButton::Right, Instant::now(), offset);
+                    vec![GestureEvent::Hover(clip)]
+                }else if buttons == 4 {
                     self.state = GestureState::MouseScroll(ptr, 1.0, offset);
                     vec![GestureEvent::Out, GestureEvent::ScrollStart]
                 } else {
@@ -225,8 +254,8 @@ impl GestureRecognizer {
                     vec![GestureEvent::Out]
                 }
             },
-            GestureState::Down(pressed, started) => {
-                if ptr != pressed {
+            GestureState::Down(pressed, button, _, started) => {
+                if ptr != pressed && button == MouseButton::Left {
                     let a = TouchScrollState{ptr: pressed, started, current: started};
                     let b = TouchScrollState{ptr, started: offset, current: offset};
                     self.state = GestureState::TouchScroll(a, b);
@@ -236,7 +265,7 @@ impl GestureRecognizer {
                     Vec::new()
                 }
             },
-            GestureState::Dragging(pressed, _) => {
+            GestureState::Dragging(pressed, _, _) => {
                 if ptr != pressed {
                     let down = HashSet::from([pressed, ptr]);
                     self.state = GestureState::WaitForSettle(down);
@@ -275,7 +304,7 @@ impl GestureRecognizer {
                 log::warn!("pointercancel fired with no pressed pointers tracked");
                 Vec::new()
             },
-            GestureState::Down(pressed, started) => {
+            GestureState::Down(pressed, _, _, _) => {
                 if ptr == pressed {
                     self.state = GestureState::Idle;
                     if self.pointers_in.len() == 1 && self.pointers_in.contains(&ptr) {
@@ -288,7 +317,7 @@ impl GestureRecognizer {
                     Vec::new()
                 }
             },
-            GestureState::Dragging(pressed, _) => {
+            GestureState::Dragging(pressed, _, _) => {
                 if ptr == pressed {
                     self.state = GestureState::Idle;
                     let mut out = vec![GestureEvent::DragCancel];

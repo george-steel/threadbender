@@ -16,7 +16,6 @@ log.workspace=true
 wgpu.workspace = true
 image = "0.25.9"
 nanopre = "0.1.2"
-winit = "0.30.12"
 rc-zip-sync = {version = "4.4.2", default-features = false, features=["deflate"]}
 console_error_panic_hook = "0.1.7"
 console_log = "1.0"
@@ -28,12 +27,17 @@ web-sys = {version = "0.3.90", features = [
     "Element",
     "PointerEvent",
     "HtmlCanvasElement",
-    "ResizeObserver"
+    "ResizeObserver",
+    "ResizeObserverOptions",
+    "ResizeObserverSize",
+    "ResizeObserverBoxOptions",
+    "DomRectReadOnly",
 ]}
 getrandom = {version = "0.4.1", features = ["wasm_js"]}
 half = {version = "2.7.1", features=["bytemuck"]}
 leptos = {version = "0.8.17", features=["csr"]}
 clone_all = "0.1.1"
+web-time = "1.1.0"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.64"

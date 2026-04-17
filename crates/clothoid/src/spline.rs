@@ -225,6 +225,7 @@ pub fn solve_clothoid_section_with_start(points: &[DVec2], mut tangents: Vec<f64
     unreachable!()
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct SolvedClothoidSeg {
     pub a: f64,
     pub b: f64,
@@ -319,30 +320,100 @@ pub fn stage_clothoid_params(points: &[DVec2], solution: &[SolvedClothoidSeg]) -
     out
 }
 
-// Convert a solution from solve_clothoid_spline to a single ClothoidDegParams buffer.
-pub fn stage_clothoid_spline(points: &[DVec2], tangents: &[f64], fits: &[FitEulerResult]) -> Vec<ClothoidSegGPUParams> {
-    let n = points.len();
-    if n < 2 {
-        return Vec::new();
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClothoidSplineCage {
+    pub points: Vec<DVec2>,
+    pub corners: Vec<bool>,
+    pub closed: bool,
+}
+
+impl ClothoidSplineCage {
+    pub fn num_points(&self) -> usize {
+        self.points.len()
     }
-    let mut out = Vec::new();
-    let mut start = 0.0;
-    for i in 0..(n-1) {
-        let arclen = fits[i].rel_chord.length_recip() * (points[i+1] - points[i]).length();
-        out.push(ClothoidSegGPUParams {
-            start: points[i].as_vec2(),
-            end: points[i+1].as_vec2(),
-            a: fits[i].a as f32,
-            b: fits[i].b as f32,
-            rel_chord: fits[i].rel_chord.as_vec2(),
-            start_tan: tangents[i] as f32,
-            end_tan: tangents[i+1] as f32,
-            arclen: arclen as f32,
-            arc_start: start as f32,
-        });
-        start += arclen;
+
+    pub fn num_segments(&self) -> usize {
+        let n = self.num_points();
+        if n < 2 {
+            0
+        } else if n == 2 {
+            1
+        } else if self.closed {
+            n
+        } else {
+            n - 1
+        }
     }
-    out
+
+    pub fn new() -> Self {
+        return ClothoidSplineCage { points: Vec::new(), corners: Vec::new(), closed: false }
+    } 
+
+    pub fn extend(&mut self, p: DVec2, is_corner: bool) {
+        self.points.push(p);
+        self.corners.push(is_corner);
+    }
+
+    pub fn insert_point(&mut self, before: usize, p: DVec2, is_corner: bool) {
+        self.points.insert(before, p);
+        self.corners.insert(before, is_corner);
+    }
+
+    pub fn solve(&self) -> Vec<SolvedClothoidSeg> {
+        let n = self.points.len();
+        if n == 0 {
+            Vec::new()
+        } else if n == 1 {
+            Vec::new()
+        } else if n == 2 {
+            let v = self.points[1] - self.points[0];
+            let dir = v.y.atan2(v.x);
+            vec![SolvedClothoidSeg {
+                a: 0.0,
+                b: 0.0,
+                start_tan: dir,
+                end_tan: dir,
+                rel_chord: DVec2::X,
+            }]
+        } else if self.closed {
+            let mut first_corner = None;
+            let mut last_corner = None;
+            let mut out = Vec::new();
+            for i in 0..n { if self.corners[i] {
+                if first_corner == None {
+                    first_corner = Some(i);
+                }
+                if let Some(last) = last_corner {
+                    let section = solve_clothoid_section(&self.points[last..=i], false);
+                    out.extend(section);
+                }
+                last_corner = Some(i)
+            }}
+            
+            if let Some(last) = last_corner {
+                let first = first_corner.unwrap();
+                let mut wrap_points = Vec::new();
+                wrap_points.extend(&self.points[last..n]);
+                let tail_len = wrap_points.len();
+                wrap_points.extend(&self.points[0..=first]);
+                let wrap_solution = solve_clothoid_section(&wrap_points, false);
+                out.extend(wrap_solution[0..tail_len].iter().copied());
+                out.splice(0..0, wrap_solution[tail_len..].iter().copied());
+                out
+            } else {
+                solve_clothoid_section(&self.points, true)
+            }
+        } else {
+            let mut last = 0;
+            let mut out = Vec::new();
+            for i in 1..(n-1) { if self.corners[i] {
+                out.extend(solve_clothoid_section(&self.points[last..=i], false));
+                last = i
+            }}
+            out.extend(solve_clothoid_section(&self.points[last..n], false));
+            out
+        }
+    }
 }
 
 #[cfg(test)]

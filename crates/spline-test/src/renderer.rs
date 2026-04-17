@@ -1,11 +1,9 @@
-use core::num;
 use std::num::NonZero;
 
 use bytemuck::bytes_of;
 use clothoid::spline::ClothoidSegGPUParams;
-use glam::{Affine2, UVec2, Vec2};
+use glam::{DVec2, USizeVec2, UVec2, Vec2};
 use half::f16;
-use image::flat::View;
 use wgpu::{BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BlendComponent, BlendState, Buffer, BufferBinding, BufferUsages, Color, ColorTargetState, ColorWrites, CommandEncoderDescriptor, FragmentState, MultisampleState, Operations, PipelineLayoutDescriptor, PrimitiveState, RenderPass, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderModule, ShaderStages, Surface, SurfaceError, Texture, TextureDimension, TextureUsages, TextureView, VertexState, util::{BufferInitDescriptor, DeviceExt}, wgt::{BufferDescriptor, TextureDescriptor, TextureViewDescriptor}};
 
 use crate::{gputil::{GPUContext, extent_2d}, line::DisplayHandle, shaders, viewport::{ViewportUniforms, ViewportWindow}};
